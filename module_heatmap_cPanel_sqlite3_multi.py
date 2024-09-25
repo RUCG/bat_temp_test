@@ -61,6 +61,10 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
 
 def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=30, title="Battery Temperature Layout"):
     total_modules = 16  # Total number of modules
+    
+    # Load the background image
+    background_image_path = "/Users/gian/Documents/bat_temp_test/coolingplate2.jpeg"
+    background_img = plt.imread(background_image_path)
 
     # Get the data at the current timestamp
     data_at_timestamp = data[:, t_index]
@@ -83,6 +87,9 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
         ax = axes[string_index]
         ax.clear()
 
+        # Display the background image
+        ax.imshow(background_img, extent=[-0.5, 4 * sensors_per_module - 0.5, 3.5, -0.5], aspect='auto')
+
         grid_data = np.zeros((4, 4 * sensors_per_module))  # Set up the grid layout
 
         # Iterate through the grid and place sensor data
@@ -102,7 +109,7 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
                 sensor_idx += sensors_per_module  # Increment by number of sensors per module
 
         # Heatmap and colorbar
-        heatmap = ax.imshow(grid_data, cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax)
+        heatmap = ax.imshow(grid_data, cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, alpha=0.6)  # Set alpha to make the heatmap semi-transparent
         if cbar_list[string_index] is None:
             cbar_list[string_index] = ax.figure.colorbar(heatmap, ax=ax)
 
