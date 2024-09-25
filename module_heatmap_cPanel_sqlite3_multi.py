@@ -11,58 +11,52 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
     min_length = None
     processed_sensors = set()  # Set to track processed sensors
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
 
-    # Filtere die Lookup-Tabelle nach der file_id
-    signal_info = lookup_table[lookup_table['File.ID'] == file_id_value]
+        signal_info = lookup_table[lookup_table['File.ID'] == file_id_value]
+        relevant_tables = set(signal_info['Table.Name'])
 
-    # Filtere nur die Tabellen aus, die die gleiche file_id haben
-    relevant_tables = set(signal_info['Table.Name'])
+        for index, row in signal_info.iterrows():
+            table_name = row['Table.Name']
+            signal_name = row['Channel.Name']
+            sensor_number = row['SensorNumber']
 
-    for index, row in signal_info.iterrows():
-        table_name = row['Table.Name']
-        signal_name = row['Channel.Name']
-        sensor_number = row['SensorNumber']
+            if sensor_number in processed_sensors:
+                continue
 
-        # Überspringe diesen Sensor, wenn er bereits verarbeitet wurde
-        if sensor_number in processed_sensors:
-            continue
+            if table_name in relevant_tables:
+                query = f"SELECT {signal_name} FROM {table_name} WHERE file_id = ?"
+                try:
+                    cursor.execute(query, (file_id_value,))
+                    data = cursor.fetchall()
+                    temperatures = [temp_row[0] for temp_row in data if temp_row[0] is not None]
 
-        # Suche nur in relevanten Tabellen mit file_id
-        if table_name in relevant_tables:
-            query = f"SELECT {signal_name} FROM {table_name} WHERE file_id = '{file_id_value}'"
-            print(f"Executing query: {query}")  # Debugging-Ausgabe
+                    if temperatures:
+                        all_temperatures.append(temperatures)
+                        sensor_numbers.append(sensor_number)
+                        processed_sensors.add(sensor_number)
 
-            try:
-                cursor.execute(query)
-                data = cursor.fetchall()
-                temperatures = [temp_row[0] for temp_row in data if temp_row[0] is not None]
-                print(f"Found {len(temperatures)} temperatures for {signal_name} in {table_name}")  # Debugging-Ausgabe
+                    if temperatures and (min_length is None or len(temperatures) < min_length):
+                        min_length = len(temperatures)
 
-                # Füge Daten nur hinzu, wenn sie existieren
-                if temperatures:
-                    all_temperatures.append(temperatures)
-                    sensor_numbers.append(sensor_number)
-                    processed_sensors.add(sensor_number)  # Markiere den Sensor als verarbeitet
-
-                # Bestimme die minimale Länge der Temperaturdaten, um spätere Arrays zu trimmen
-                if temperatures and (min_length is None or len(temperatures) < min_length):
-                    min_length = len(temperatures)
-
-            except Exception as e:
-                print(f"Error processing signal {signal_name} in table {table_name}: {e}")
-                all_temperatures.append([])
-                sensor_numbers.append(None)
+                except Exception as e:
+                    print(f"Error processing signal {signal_name} in table {table_name}: {e}")
+                    all_temperatures.append([])
+                    sensor_numbers.append(None)
+                    
+    except Exception as e:
+        print(f"Database error: {e}")
+    finally:
+        if conn:
+            conn.close()
 
     if min_length is None:
         min_length = 0
 
-    # Trimme alle Temperaturdaten auf die minimale Länge
     all_temperatures_trimmed = [temps[:min_length] for temps in all_temperatures]
-
-    conn.close()
-
     return np.array(all_temperatures_trimmed), sensor_numbers
 
 def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=30, title="Battery Temperature Layout"):
