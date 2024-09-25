@@ -60,44 +60,48 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
     return np.array(all_temperatures_trimmed), sensor_numbers
 
 
-
 def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=30, title="Battery Temperature Layout"):
     # Load the background image
     background_image_path = "/Users/gian/Documents/bat_temp_test/coolingplate_edited.png"
     background_img = plt.imread(background_image_path)
     
-    # Get the dimensions of the image
-    image_height = background_img.shape[0]
-    image_width = background_img.shape[1]
+    image_height, image_width = background_img.shape[:2]
     
-    # Calculate the center position for the whitespace
+    # White area dimensions in the center where the heatmap should be displayed
     white_area_width = 486
     white_area_height = 212
-    
-    # Calculate the exact position for the white space
     x_start = (image_width - white_area_width + 40) / 2
     x_end = x_start + white_area_width
     y_start = (image_height - white_area_height) / 2
     y_end = y_start + white_area_height
     
-    # Convert these pixel coordinates to the extent parameter for imshow (left, right, bottom, top)
+    # Convert pixel coordinates to 'extent' for imshow (left, right, bottom, top)
     heatmap_extent = [x_start, x_end, y_start, y_end]
 
-    # Get the data at the current timestamp
+    # Extract data for the current time index
     data_at_timestamp = data[:, t_index]
 
-    # Reorder the data and sensor numbers based on the custom sensor order
-    reordered_data = np.zeros_like(data_at_timestamp)
-    reordered_sensor_numbers = [None] * len(sensor_numbers)
-    
-    for idx, sensor_order in enumerate(custom_sensor_order):
-        reordered_data[idx] = data_at_timestamp[sensor_order - 1]
-        reordered_sensor_numbers[idx] = sensor_numbers[sensor_order - 1]
+    # Reorder data for each layer using the `custom_sensor_order`
+    total_sensors = len(sensor_numbers) // strings_count  # Total sensors per layer
+    reordered_layers = []
+    reordered_sensor_numbers_layers = []
 
-    # Reshape data matrix to include both modules and sensors flattened
-    data_matrix_flat = reordered_data.reshape(-1)  # Flatten the matrix
+    for layer in range(strings_count):
+        start_idx = layer * total_sensors
+        end_idx = start_idx + total_sensors
 
-    sensor_idx = 0  # Index for the flat sensor array
+        layer_sensor_order = custom_sensor_order[start_idx:end_idx]
+        
+        # Reorder data and sensor numbers for this specific layer
+        reordered_data_layer = np.zeros_like(data_at_timestamp[start_idx:end_idx])
+        reordered_sensor_numbers_layer = [None] * len(sensor_numbers[start_idx:end_idx])
+        
+        for idx, sensor_order in enumerate(layer_sensor_order):
+            reordered_data_layer[idx] = data_at_timestamp[sensor_order - 1]
+            reordered_sensor_numbers_layer[idx] = sensor_numbers[sensor_order - 1]
+        
+        reordered_layers.append(reordered_data_layer)
+        reordered_sensor_numbers_layers.append(reordered_sensor_numbers_layer)
 
     # Iterate over each string (battery string) for plotting
     for string_index in range(strings_count):
@@ -109,12 +113,13 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
 
         # Create the grid_data for the heatmap
         grid_data = np.zeros((4, 4 * sensors_per_module))  # Initialize grid data
-
+        reordered_data_flat = reordered_layers[string_index].flatten()
+        
         # Populate the grid_data with temperature values
+        sensor_idx = 0
         for i in range(4):  # Rows
             for j in range(4):  # Columns
-                grid_data[i, j * sensors_per_module:(j + 1) * sensors_per_module] = data_matrix_flat[sensor_idx:sensor_idx + sensors_per_module]
-
+                grid_data[i, j * sensors_per_module:(j + 1) * sensors_per_module] = reordered_data_flat[sensor_idx:sensor_idx + sensors_per_module]
                 sensor_idx += sensors_per_module
 
         # Display the heatmap in the center of the whitespace using the calculated extent
@@ -125,48 +130,48 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
         cell_width = (x_end - x_start) / num_cols
         cell_height = (y_end - y_start) / num_rows
 
-        # Re-calculate sensor_idx for placing text
+        # Annotate the sensor data for the current layer
         sensor_idx = 0
-        
         for i in range(num_rows):
             for j in range(num_cols):
-                # Calculate the center coordinates for the sensor annotation
                 annotation_x = x_start + (j + 0.5) * cell_width
                 annotation_y = y_start + (num_rows - i - 0.5) * cell_height
                 
                 temp = grid_data[i, j]
-                original_sensor_number = reordered_sensor_numbers[sensor_idx]
+                original_sensor_number = reordered_sensor_numbers_layers[string_index][sensor_idx]
 
                 ax.text(annotation_x, annotation_y, f'Sensor {original_sensor_number}\n{temp:.1f}°C',
                         ha='center', va='center', color='black', fontsize=8, zorder=3)
-                
                 sensor_idx += 1
 
         if cbar_list[string_index] is None:
             cbar_list[string_index] = ax.figure.colorbar(heatmap, ax=ax)
 
-        # Set the axis limits to match the background image
         ax.set_xlim(0, image_width)
         ax.set_ylim(image_height, 0)  # Reverse y-axis to match image coordinate system
         ax.set_title(f'{title} (Layer {string_index + 1}, Time Index: {t_index + 1} / {total_frames})')
 
-        plt.tight_layout(pad=3.0)
+    plt.tight_layout(pad=3.0)
 
 def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order):
     total_frames = data.shape[1]
     fig, axes = plt.subplots(strings_count, 1, figsize=(10, 5 * strings_count))
     cbar_list = [None] * strings_count
 
+    # Slider for time
     ax_slider = plt.axes([0.25, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
     slider = Slider(ax_slider, 'Time', 0, total_frames - 1, valinit=0, valstep=1)
 
+    # Play/Pause button
     ax_button_play = plt.axes([0.8, 0.02, 0.1, 0.04])
     button_play = Button(ax_button_play, 'Play/Pause')
 
-    ax_button_ff = plt.axes([0.1, 0.02, 0.1, 0.04])
+    # Fast Forward button
+    ax_button_ff = plt.axes([0.65, 0.02, 0.1, 0.04])
     button_ff = Button(ax_button_ff, 'Fast Forward')
 
-    ax_button_rw = plt.axes([0.01, 0.02, 0.1, 0.04])
+    # Rewind button
+    ax_button_rw = plt.axes([0.1, 0.02, 0.1, 0.04])
     button_rw = Button(ax_button_rw, 'Rewind')
 
     playing = [False]
@@ -182,16 +187,18 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
         playing[0] = not playing[0]
 
     def fast_forward(event):
-        if slider.val < total_frames - 5:
-            slider.set_val(slider.val + 5)
+        current_val = slider.val
+        if current_val < total_frames - 5:
+            slider.set_val(current_val + 5)  # Move forward by 5 frames
         else:
-            slider.set_val(total_frames - 1)
+            slider.set_val(total_frames - 1)  # Move to the last frame if near the end
 
     def rewind(event):
-        if slider.val > 5:
-            slider.set_val(slider.val - 5)
+        current_val = slider.val
+        if current_val > 5:
+            slider.set_val(current_val - 5)  # Move backward by 5 frames
         else:
-            slider.set_val(0)
+            slider.set_val(0)  # Move to the first frame if near the start
 
     button_play.on_clicked(toggle_play)
     button_ff.on_clicked(fast_forward)
@@ -199,47 +206,38 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
 
     def animate(i):
         if playing[0]:
-            slider.set_val((slider.val + 1) % total_frames)
+            next_val = (slider.val + 1) % total_frames
+            slider.set_val(next_val)
 
     ani = FuncAnimation(fig, animate, interval=200)
 
-    # Rufe die update-Funktion auf, um die erste Heatmap sofort anzuzeigen
-    update(0)  # Erste Heatmap direkt beim Start zeichnen
+    # Call the update function to display the initial frame
+    update(0)  # Draw the first frame immediately upon start
 
     plt.show()
 
 def main(db_path, lookup_table_path, file_id):
-    # Lade die Lookup-Tabelle
     lookup_table = pd.read_csv(lookup_table_path)
 
     sensors_per_module = 2
     strings_count = 3
 
-    # Extrahiere Temperaturen und Sensor-Nummern basierend auf der Lookup-Tabelle und file_id
     temperatures, sensor_numbers = extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id)
 
-    # Custom sensor order (example, update with real physical layout)
     custom_sensor_order = [
-        # Layer 1
         32, 31, 30, 29, 28, 27, 26, 25,
-        17, 18, 19, 20, 21, 22, 23, 24, 
+        17, 18, 19, 20, 21, 22, 23, 24,
         16, 15, 14, 13, 12, 11, 10, 9,
         1, 2, 3, 4, 5, 6, 7, 8,
-        # Layer 2
-        48, 47, 46, 45, 44, 43, 42, 41, 
-        33, 34, 35, 36, 37, 38, 39, 40, 
-        64, 63, 62, 61, 60, 59, 58, 57, 
-        49, 50, 51, 52, 53, 54, 55, 56, 
-        # Layer 3
-        96, 95, 94, 93, 92, 91, 90, 89, 
-        81, 82, 83, 84, 85, 86, 87, 88, 
-        80, 79, 78, 77, 76, 75, 74, 73, 
+        48, 47, 46, 45, 44, 43, 42, 41,
+        33, 34, 35, 36, 37, 38, 39, 40,
+        64, 63, 62, 61, 60, 59, 58, 57,
+        49, 50, 51, 52, 53, 54, 55, 56,
+        96, 95, 94, 93, 92, 91, 90, 89,
+        81, 82, 83, 84, 85, 86, 87, 88,
+        80, 79, 78, 77, 76, 75, 74, 73,
         65, 66, 67, 68, 69, 70, 71, 72
     ]
-
-    # Debugging: Check the shape of the extracted data
-    print(f"Data shape: {temperatures.shape}")
-    print(f"Sensor numbers: {sensor_numbers}")
 
     if len(temperatures) > 0:
         interactive_battery_layout(temperatures, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order)
@@ -249,5 +247,5 @@ def main(db_path, lookup_table_path, file_id):
 if __name__ == "__main__":
     db_path = "mf4_data.db"
     lookup_table_path = "db_lookup_table.csv"
-    file_id = "TCP0014_Run19_02.MF4"  # Beispiel file_id, je nach Daten anpassen
+    file_id = "TCP0014_Run19_02.MF4"
     main(db_path, lookup_table_path, file_id)
