@@ -158,20 +158,16 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
     fig, axes = plt.subplots(strings_count, 1, figsize=(10, 5 * strings_count))
     cbar_list = [None] * strings_count
 
-    # Slider for time
     ax_slider = plt.axes([0.25, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
     slider = Slider(ax_slider, 'Time', 0, total_frames - 1, valinit=0, valstep=1)
 
-    # Play/Pause button
     ax_button_play = plt.axes([0.8, 0.02, 0.1, 0.04])
     button_play = Button(ax_button_play, 'Play/Pause')
 
-    # Fast Forward button
-    ax_button_ff = plt.axes([0.65, 0.02, 0.1, 0.04])
+    ax_button_ff = plt.axes([0.1, 0.02, 0.1, 0.04])
     button_ff = Button(ax_button_ff, 'Fast Forward')
 
-    # Rewind button
-    ax_button_rw = plt.axes([0.1, 0.02, 0.1, 0.04])
+    ax_button_rw = plt.axes([0.01, 0.02, 0.1, 0.04])
     button_rw = Button(ax_button_rw, 'Rewind')
 
     playing = [False]
@@ -187,18 +183,16 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
         playing[0] = not playing[0]
 
     def fast_forward(event):
-        current_val = slider.val
-        if current_val < total_frames - 5:
-            slider.set_val(current_val + 5)  # Move forward by 5 frames
+        if slider.val < total_frames - 5:
+            slider.set_val(slider.val + 5)
         else:
-            slider.set_val(total_frames - 1)  # Move to the last frame if near the end
+            slider.set_val(total_frames - 1)
 
     def rewind(event):
-        current_val = slider.val
-        if current_val > 5:
-            slider.set_val(current_val - 5)  # Move backward by 5 frames
+        if slider.val > 5:
+            slider.set_val(slider.val - 5)
         else:
-            slider.set_val(0)  # Move to the first frame if near the start
+            slider.set_val(0)
 
     button_play.on_clicked(toggle_play)
     button_ff.on_clicked(fast_forward)
@@ -206,13 +200,12 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
 
     def animate(i):
         if playing[0]:
-            next_val = (slider.val + 1) % total_frames
-            slider.set_val(next_val)
+            slider.set_val((slider.val + 1) % total_frames)
 
     ani = FuncAnimation(fig, animate, interval=200)
 
-    # Call the update function to display the initial frame
-    update(0)  # Draw the first frame immediately upon start
+    # Rufe die update-Funktion auf, um die erste Heatmap sofort anzuzeigen
+    update(0)  # Erste Heatmap direkt beim Start zeichnen
 
     plt.show()
 
@@ -247,5 +240,5 @@ def main(db_path, lookup_table_path, file_id):
 if __name__ == "__main__":
     db_path = "mf4_data.db"
     lookup_table_path = "db_lookup_table.csv"
-    file_id = "TCP0014_Run19_02.MF4"
+    file_id = "TCP0014_Run1_01.MF4"
     main(db_path, lookup_table_path, file_id)
