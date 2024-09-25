@@ -59,12 +59,29 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
     all_temperatures_trimmed = [temps[:min_length] for temps in all_temperatures]
     return np.array(all_temperatures_trimmed), sensor_numbers
 
+
+
 def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=30, title="Battery Temperature Layout"):
-    total_modules = 16  # Total number of modules
-    
     # Load the background image
-    background_image_path = "/Users/gian/Documents/bat_temp_test/coolingplate2.jpeg"
+    background_image_path = "/Users/gian/Documents/bat_temp_test/coolingplate_edited.png"
     background_img = plt.imread(background_image_path)
+    
+    # Get the dimensions of the image
+    image_height = background_img.shape[0]
+    image_width = background_img.shape[1]
+    
+    # Calculate the center position for the whitespace
+    white_area_width = 486
+    white_area_height = 212
+    
+    # Calculate the exact position for the white space
+    x_start = (image_width - white_area_width + 40) / 2
+    x_end = x_start + white_area_width
+    y_start = (image_height - white_area_height) / 2
+    y_end = y_start + white_area_height
+    
+    # Convert these pixel coordinates to the extent parameter for imshow (left, right, bottom, top)
+    heatmap_extent = [x_start, x_end, y_start, y_end]
 
     # Get the data at the current timestamp
     data_at_timestamp = data[:, t_index]
@@ -88,49 +105,52 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
         ax.clear()
 
         # Display the background image
-        ax.imshow(background_img, extent=[-0.5, 4 * sensors_per_module - 0.5, 3.5, -0.5], aspect='auto')
+        ax.imshow(background_img, extent=[0, image_width, 0, image_height], aspect='auto', zorder=1)
 
-        grid_data = np.zeros((4, 4 * sensors_per_module))  # Set up the grid layout
+        # Create the grid_data for the heatmap
+        grid_data = np.zeros((4, 4 * sensors_per_module))  # Initialize grid data
 
-        # Iterate through the grid and place sensor data
+        # Populate the grid_data with temperature values
         for i in range(4):  # Rows
             for j in range(4):  # Columns
                 grid_data[i, j * sensors_per_module:(j + 1) * sensors_per_module] = data_matrix_flat[sensor_idx:sensor_idx + sensors_per_module]
 
-                # Use the flattened sensor number for the label
-                for sensor_num in range(sensors_per_module):
-                    sensor_x = j * sensors_per_module + sensor_num
-                    sensor_y = i
-                    temp = data_matrix_flat[sensor_idx + sensor_num]  # Retrieve temperature
-                    original_sensor_number = reordered_sensor_numbers[sensor_idx + sensor_num]  # Correct sensor number
-                    ax.text(sensor_x, sensor_y, f'Sensor {original_sensor_number}\n{temp:.1f}°C',
-                            ha='center', va='center', color='black', fontsize=8)
+                sensor_idx += sensors_per_module
 
-                sensor_idx += sensors_per_module  # Increment by number of sensors per module
+        # Display the heatmap in the center of the whitespace using the calculated extent
+        heatmap = ax.imshow(grid_data, cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=1.0, zorder=2)
 
-        # Heatmap and colorbar
-        heatmap = ax.imshow(grid_data, cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, alpha=0.6)  # Set alpha to make the heatmap semi-transparent
+        # Annotate with sensor information now, ensuring perfect overlap
+        num_rows, num_cols = grid_data.shape
+        cell_width = (x_end - x_start) / num_cols
+        cell_height = (y_end - y_start) / num_rows
+
+        # Re-calculate sensor_idx for placing text
+        sensor_idx = 0
+        
+        for i in range(num_rows):
+            for j in range(num_cols):
+                # Calculate the center coordinates for the sensor annotation
+                annotation_x = x_start + (j + 0.5) * cell_width
+                annotation_y = y_start + (num_rows - i - 0.5) * cell_height
+                
+                temp = grid_data[i, j]
+                original_sensor_number = reordered_sensor_numbers[sensor_idx]
+
+                ax.text(annotation_x, annotation_y, f'Sensor {original_sensor_number}\n{temp:.1f}°C',
+                        ha='center', va='center', color='black', fontsize=8, zorder=3)
+                
+                sensor_idx += 1
+
         if cbar_list[string_index] is None:
             cbar_list[string_index] = ax.figure.colorbar(heatmap, ax=ax)
 
-        # Axis formatting
-        ax.set_xticks(np.arange(0, 4 * sensors_per_module, sensors_per_module))
-        ax.set_yticks(np.arange(0, 4, 1))
-        ax.set_xticklabels([f"Column {i+1}" for i in range(4)])
-        ax.set_yticklabels([f"Row {i+1}" for i in range(4)])
+        # Set the axis limits to match the background image
+        ax.set_xlim(0, image_width)
+        ax.set_ylim(image_height, 0)  # Reverse y-axis to match image coordinate system
         ax.set_title(f'{title} (Layer {string_index + 1}, Time Index: {t_index + 1} / {total_frames})')
 
-        # Add grid lines for modules
-        for i in range(4):
-            for j in range(4):
-                x = j * sensors_per_module - 0.5
-                y = i - 0.5
-                width = sensors_per_module
-                height = 1
-                rect = plt.Rectangle((x, y), width, height, fill=False, edgecolor='black', linewidth=3)
-                ax.add_patch(rect)
-
-    plt.tight_layout(pad=3.0)
+        plt.tight_layout(pad=3.0)
 
 def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order):
     total_frames = data.shape[1]
@@ -229,5 +249,5 @@ def main(db_path, lookup_table_path, file_id):
 if __name__ == "__main__":
     db_path = "mf4_data.db"
     lookup_table_path = "db_lookup_table.csv"
-    file_id = "TCP0014_Run1_01.MF4"  # Beispiel file_id, je nach Daten anpassen
+    file_id = "TCP0014_Run19_02.MF4"  # Beispiel file_id, je nach Daten anpassen
     main(db_path, lookup_table_path, file_id)
