@@ -14,12 +14,10 @@ tables = cursor.fetchall()
 # Regulärer Ausdruck zum Filtern der gewünschten Signale
 pattern = re.compile(r'^moduleTemperature(\d+)_BMS01$', re.IGNORECASE)
 
-# Zusätzliche Spaltennamen für Inlet- und Outlettemperaturen
+# Zusätzliche Spaltennamen für Inlet-, Outlet-Temperaturen und Coolant Flow
 inlet_outlet_columns = ['coolantInletTemperature_BMS05', 'coolantOutletTemperature_BMS05',
                         'coolantInletTemperature_BMS01', 'coolantOutletTemperature_BMS01']
-
-# Name des Flusssignals
-flow_signal_name = 'VCU_AI_ClntFlow_Mean'
+coolant_flow_signal = 'VCU_AI_ClntFlow_Mean'  # Signalname für den Kühlmittelfluss
 
 # Liste zum Speichern der gefundenen Signale
 found_columns = []
@@ -35,7 +33,7 @@ for table in tables:
     # Überprüfe, ob die Tabelle eine 'file_id'-Spalte hat (Annahme, dass es eine 'file_id' gibt)
     file_id_column = any('file_id' in column[1].lower() for column in columns)
     
-    # Überprüfe jede Spalte, ob sie dem Muster entspricht
+    # Überprüfe jede Spalte, ob sie dem Muster entspricht oder ein spezielles Signal ist
     for column in columns:
         column_name = column[1]
         match = pattern.match(column_name)
@@ -50,15 +48,9 @@ for table in tables:
                 file_ids = cursor.fetchall()
                 
                 for file_id in file_ids:
-                    # Prüfen, ob der Wert in der Spalte nicht NULL ist
-                    cursor.execute(f"SELECT 1 FROM {table_name} WHERE {column_name} IS NOT NULL AND file_id = ? LIMIT 1", (file_id[0],))
-                    if cursor.fetchone():
-                        found_columns.append((column_name, table_name, sensor_number, file_id[0]))
+                    found_columns.append((column_name, table_name, sensor_number, file_id[0]))
             else:
-                # Prüfen, ob der Wert in der Spalte nicht NULL ist
-                cursor.execute(f"SELECT 1 FROM {table_name} WHERE {column_name} IS NOT NULL LIMIT 1")
-                if cursor.fetchone():
-                    found_columns.append((column_name, table_name, sensor_number, None))
+                found_columns.append((column_name, table_name, sensor_number, None))
 
         # Prüfen auf Inlet- und Outlettemperaturspalten
         if column_name in inlet_outlet_columns:
@@ -68,31 +60,31 @@ for table in tables:
                 cursor.execute(f"SELECT DISTINCT file_id FROM {table_name}")
                 file_ids = cursor.fetchall()
                 for file_id in file_ids:
-                    # Prüfen, ob der Wert in der Spalte nicht NULL ist
+                    # Prüfe, ob es gültige (nicht NULL) Einträge gibt
                     cursor.execute(f"SELECT 1 FROM {table_name} WHERE {column_name} IS NOT NULL AND file_id = ? LIMIT 1", (file_id[0],))
                     if cursor.fetchone():
                         found_columns.append((column_name, table_name, sensor_number, file_id[0]))
             else:
-                # Prüfen, ob der Wert in der Spalte nicht NULL ist
+                # Prüfe, ob es gültige (nicht NULL) Einträge gibt
                 cursor.execute(f"SELECT 1 FROM {table_name} WHERE {column_name} IS NOT NULL LIMIT 1")
                 if cursor.fetchone():
                     found_columns.append((column_name, table_name, sensor_number, None))
-        
-        # Prüfen auf das spezifische Flusssignal
-        if column_name == flow_signal_name:
-            sensor_number = 103  # Verwende die Sensornummer 103 für das Flusssignal
-            print(f"Found coolant flow signal '{flow_signal_name}' in table '{table_name}'")
+
+        # Prüfen auf das Kühlmittelflusssignal
+        if column_name == coolant_flow_signal:
+            sensor_number = 103  # Verwende die Sensornummer 103 für das Kühlmittelflusssignal
+            print(f"Found coolant flow signal '{coolant_flow_signal}' in table '{table_name}'")
             
             if file_id_column:
                 cursor.execute(f"SELECT DISTINCT file_id FROM {table_name}")
                 file_ids = cursor.fetchall()
                 for file_id in file_ids:
-                    # Prüfen, ob der Wert in der Flusssignalspalte nicht NULL ist
+                    # Prüfe, ob es gültige (nicht NULL) Einträge für den Kühlmittelfluss gibt
                     cursor.execute(f"SELECT 1 FROM {table_name} WHERE {column_name} IS NOT NULL AND file_id = ? LIMIT 1", (file_id[0],))
-                    if cursor.fetchone():
+                    if cursor.fetchone():  # Nur hinzufügen, wenn es nicht NULL Werte gibt
                         found_columns.append((column_name, table_name, sensor_number, file_id[0]))
             else:
-                # Prüfen, ob der Wert in der Flusssignalspalte nicht NULL ist
+                # Prüfe, ob es gültige (nicht NULL) Einträge für den Kühlmittelfluss gibt
                 cursor.execute(f"SELECT 1 FROM {table_name} WHERE {column_name} IS NOT NULL LIMIT 1")
                 if cursor.fetchone():
                     found_columns.append((column_name, table_name, sensor_number, None))
@@ -100,7 +92,7 @@ for table in tables:
 # Ergebnisse in ein DataFrame konvertieren
 df = pd.DataFrame(found_columns, columns=['Channel.Name', 'Table.Name', 'SensorNumber', 'File.ID'])
 
-# Sortiere das DataFrame nach der Sensornummer
+# Sortiere das DataFrame nach der Sensornummer (negative Nummern für Inlet/Outlet/Coolant Flow kommen zuerst)
 df = df.sort_values(by='SensorNumber').reset_index(drop=True)
 
 # Speichere das DataFrame als CSV-Datei

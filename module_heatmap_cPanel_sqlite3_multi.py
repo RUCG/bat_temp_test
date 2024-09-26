@@ -9,13 +9,14 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
     all_temperatures = []
     sensor_numbers = []
     min_length = None
-    processed_sensors = set()  # Set to track processed sensors
+    processed_sensors = set()
 
     conn = None
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
+        # Filter lookup table entries matching the current `file_id`
         signal_info = lookup_table[lookup_table['File.ID'] == file_id_value]
         relevant_tables = set(signal_info['Table.Name'])
 
@@ -24,7 +25,8 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
             signal_name = row['Channel.Name']
             sensor_number = row['SensorNumber']
 
-            if sensor_number in processed_sensors:
+            # Skip sensor numbers 102 (outlet) and 103 (coolant flow)
+            if sensor_number in processed_sensors or sensor_number in [102, 103]:
                 continue
 
             if table_name in relevant_tables:
@@ -59,57 +61,59 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
     all_temperatures_trimmed = [temps[:min_length] for temps in all_temperatures]
     return np.array(all_temperatures_trimmed), sensor_numbers
 
-def extract_inlet_outlet_temperatures(db_path, file_id_value, lookup_table):
+def extract_inlet_outlet_flow(db_path, file_id_value, lookup_table):
     conn = None
     inlet_temperature = []
     outlet_temperature = []
+    coolant_flow = []
     
     try:
         print(f"Connecting to database at: {db_path}")
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        print(f"Looking up inlet and outlet temperatures for file ID: {file_id_value}")
+        print(f"Looking up inlet, outlet, and flow for file ID: {file_id_value}")
 
-        # Get all entries for inlet and outlet temperatures
+        # Get all entries for inlet, outlet temperatures, and coolant flow matching the `file_id`
         inlet_info_list = lookup_table[(lookup_table['File.ID'] == file_id_value) & (lookup_table['SensorNumber'] == 101)]
         outlet_info_list = lookup_table[(lookup_table['File.ID'] == file_id_value) & (lookup_table['SensorNumber'] == 102)]
+        flow_info_list = lookup_table[(lookup_table['File.ID'] == file_id_value) & (lookup_table['SensorNumber'] == 103)]
 
-        # Debugging: Check entries found
-        print(f"Found {len(inlet_info_list)} entries for inlet temperature in the lookup table.")
-        print(f"Found {len(outlet_info_list)} entries for outlet temperature in the lookup table.")
-
-        # Attempt to retrieve inlet temperature data from all available entries until successful
+        # Extract inlet temperature
         for index, inlet_info in inlet_info_list.iterrows():
             inlet_table = inlet_info['Table.Name']
             inlet_column = inlet_info['Channel.Name']
-            print(f"Trying to extract inlet temperature from table '{inlet_table}' and column '{inlet_column}'")
 
             query = f"SELECT {inlet_column} FROM {inlet_table} WHERE file_id = ?"
             cursor.execute(query, (file_id_value,))
             inlet_temperature = [temp[0] for temp in cursor.fetchall() if temp[0] is not None]
 
             if inlet_temperature:
-                print(f"Successfully retrieved inlet temperature data from table '{inlet_table}': {inlet_temperature}")
                 break  # Stop once data is found
-            else:
-                print(f"No inlet temperature data found in table '{inlet_table}'.")
 
-        # Attempt to retrieve outlet temperature data from all available entries until successful
+        # Extract outlet temperature
         for index, outlet_info in outlet_info_list.iterrows():
             outlet_table = outlet_info['Table.Name']
             outlet_column = outlet_info['Channel.Name']
-            print(f"Trying to extract outlet temperature from table '{outlet_table}' and column '{outlet_column}'")
 
             query = f"SELECT {outlet_column} FROM {outlet_table} WHERE file_id = ?"
             cursor.execute(query, (file_id_value,))
             outlet_temperature = [temp[0] for temp in cursor.fetchall() if temp[0] is not None]
 
             if outlet_temperature:
-                print(f"Successfully retrieved outlet temperature data from table '{outlet_table}': {outlet_temperature}")
                 break  # Stop once data is found
-            else:
-                print(f"No outlet temperature data found in table '{outlet_table}'.")
+
+        # Extract coolant flow
+        for index, flow_info in flow_info_list.iterrows():
+            flow_table = flow_info['Table.Name']
+            flow_column = flow_info['Channel.Name']
+
+            query = f"SELECT {flow_column} FROM {flow_table} WHERE file_id = ?"
+            cursor.execute(query, (file_id_value,))
+            coolant_flow = [flow[0] for flow in cursor.fetchall() if flow[0] is not None]
+
+            if coolant_flow:
+                break  # Stop once data is found
 
     except Exception as e:
         print(f"Database error: {e}")
@@ -118,9 +122,7 @@ def extract_inlet_outlet_temperatures(db_path, file_id_value, lookup_table):
             print("Closing database connection.")
             conn.close()
     
-    print(f"Returning inlet temperatures: {inlet_temperature}")
-    print(f"Returning outlet temperatures: {outlet_temperature}")
-    return inlet_temperature, outlet_temperature
+    return inlet_temperature, outlet_temperature, coolant_flow
 
 def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=30, title="Battery Temperature Layout"):
     # Load the background image
@@ -138,29 +140,44 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
     
     data_at_timestamp = data[:, t_index]  # Get data for the current timestamp
 
-    actual_sensor_count = len(sensor_numbers)
-    adjusted_custom_sensor_order = [sensor for sensor in custom_sensor_order if sensor <= actual_sensor_count]
-
-    # Check consistency of sensor data
-    total_sensors = actual_sensor_count // strings_count
+    total_sensors_per_layer = 4 * sensors_per_module * 4  # Updated: 4 rows with 4 columns each
     reordered_layers = []
     reordered_sensor_numbers_layers = []
 
     for layer in range(strings_count):
-        start_idx = layer * total_sensors
-        end_idx = min(start_idx + total_sensors, len(adjusted_custom_sensor_order))
+        # Initialize an empty grid with NaNs
+        reordered_data_layer = np.full((4, 4 * sensors_per_module), np.nan)
+        reordered_sensor_numbers_layer = np.full((4, 4 * sensors_per_module), None, dtype=object)
 
-        layer_sensor_order = adjusted_custom_sensor_order[start_idx:end_idx]
+        # Extract the appropriate slice for the current layer from `custom_sensor_order`
+        start_index = layer * total_sensors_per_layer
+        end_index = start_index + total_sensors_per_layer
+        
+        # Ensure we do not exceed the length of `custom_sensor_order`
+        if end_index > len(custom_sensor_order):
+            end_index = len(custom_sensor_order)
 
-        reordered_data_layer = np.full(len(layer_sensor_order), np.nan)  # Initialize with NaNs
-        reordered_sensor_numbers_layer = [None] * len(layer_sensor_order)
+        layer_sensor_indices = custom_sensor_order[start_index:end_index]
+        
+        if len(layer_sensor_indices) != total_sensors_per_layer:
+            print(f"Warning: Expected {total_sensors_per_layer} sensors for layer {layer + 1}, but got {len(layer_sensor_indices)}")
 
-        for idx, sensor_order in enumerate(layer_sensor_order):
-            if sensor_order - 1 < len(data_at_timestamp):
-                reordered_data_layer[idx] = data_at_timestamp[sensor_order - 1]
-                reordered_sensor_numbers_layer[idx] = sensor_numbers[sensor_order - 1]
-            else:
-                print(f"Warning: Sensor order {sensor_order} out of bounds for data length {len(data_at_timestamp)}")
+        for i in range(4):
+            for j in range(4 * sensors_per_module):
+                local_index = i * (4 * sensors_per_module) + j
+                if local_index < len(layer_sensor_indices):
+                    sensor_order = layer_sensor_indices[local_index]
+                    
+                    # Check if this sensor exists in our data and fill it in the grid
+                    if sensor_order in sensor_numbers:
+                        sensor_index = sensor_numbers.index(sensor_order)
+                        reordered_data_layer[i, j] = data_at_timestamp[sensor_index]
+                        reordered_sensor_numbers_layer[i, j] = sensor_order
+                    else:
+                        # Mark the sensor number as missing
+                        reordered_sensor_numbers_layer[i, j] = None
+                else:
+                    reordered_sensor_numbers_layer[i, j] = None
 
         reordered_layers.append(reordered_data_layer)
         reordered_sensor_numbers_layers.append(reordered_sensor_numbers_layer)
@@ -171,42 +188,22 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
         ax.clear()
         ax.imshow(background_img, extent=[0, image_width, 0, image_height], aspect='auto', zorder=1)
 
-        grid_data = np.full((4, 4 * sensors_per_module), np.nan)  # Initialize grid data with NaNs
-        reordered_data_flat = reordered_layers[string_index].flatten()
-
-        sensor_idx = 0
-        for i in range(4):
-            for j in range(4):
-                data_to_insert = reordered_data_flat[sensor_idx:sensor_idx + sensors_per_module]
-                
-                # Only insert if data is complete
-                if len(data_to_insert) == sensors_per_module:
-                    grid_data[i, j * sensors_per_module:(j + 1) * sensors_per_module] = data_to_insert
-                else:
-                    print(f"Warning: Incomplete data at grid position ({i}, {j}). Expected {sensors_per_module}, got {len(data_to_insert)}")
-                
-                sensor_idx += sensors_per_module
-
-        heatmap = ax.imshow(grid_data, cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=1.0, zorder=2)
+        heatmap = ax.imshow(reordered_layers[string_index], cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=1.0, zorder=2)
 
         # Annotate sensor data
         cell_width = (x_end - x_start) / (4 * sensors_per_module)
         cell_height = (y_end - y_start) / 4
 
-        sensor_idx = 0
         for i in range(4):
             for j in range(4 * sensors_per_module):
                 annotation_x = x_start + (j + 0.5) * cell_width
                 annotation_y = y_start + (4 - i - 0.5) * cell_height
-                temp = grid_data[i, j]
+                temp = reordered_layers[string_index][i, j]
+                sensor_number = reordered_sensor_numbers_layers[string_index][i, j]
                 
-                if sensor_idx < len(reordered_sensor_numbers_layers[string_index]):
-                    original_sensor_number = reordered_sensor_numbers_layers[string_index][sensor_idx]
-                    if original_sensor_number is not None and not np.isnan(temp):
-                        ax.text(annotation_x, annotation_y, f'Sensor {original_sensor_number}\n{temp:.1f}°C',
-                                ha='center', va='center', color='black', fontsize=8, zorder=3)
-                
-                sensor_idx += 1
+                if sensor_number is not None and not np.isnan(temp):
+                    ax.text(annotation_x, annotation_y, f'Sensor {sensor_number}\n{temp:.1f}°C',
+                            ha='center', va='center', color='black', fontsize=8, zorder=3)
 
         if cbar_list[string_index] is None:
             cbar_list[string_index] = ax.figure.colorbar(heatmap, ax=ax)
@@ -217,16 +214,14 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
 
     plt.tight_layout(pad=3.0)
 
-def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order, inlet_temp, outlet_temp):
+def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order, inlet_temp, outlet_temp, flow):
     total_frames = data.shape[1]
     fig, axes = plt.subplots(strings_count, 1, figsize=(10, 5 * strings_count))
     cbar_list = [None] * strings_count
 
-    # Slider for controlling the time frame
     ax_slider = plt.axes([0.25, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
     slider = Slider(ax_slider, 'Time', 0, total_frames - 1, valinit=0, valstep=1)
 
-    # Play/Pause, Fast Forward, and Rewind buttons
     ax_button_play = plt.axes([0.8, 0.02, 0.1, 0.04])
     button_play = Button(ax_button_play, 'Play/Pause')
 
@@ -242,20 +237,23 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
         t_index = int(slider.val)
         plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order)
         
-        # Display the inlet and outlet temperatures at the current time index
         if len(inlet_temp) > t_index and inlet_temp[t_index] is not None:
             inlet_display = f"{inlet_temp[t_index]:.2f} °C"
         else:
             inlet_display = 'N/A'
+        
         if len(outlet_temp) > t_index and outlet_temp[t_index] is not None:
             outlet_display = f"{outlet_temp[t_index]:.2f} °C"
         else:
             outlet_display = 'N/A'
         
-        # Display the temperatures at the top of the figure
-        fig.suptitle(f"Inlet Temperature: {inlet_display}    Outlet Temperature: {outlet_display}", fontsize=14, fontweight='bold')
-
-        fig.canvas.draw_idle()  # Refresh the canvas to show changes
+        if len(flow) > t_index and flow[t_index] is not None:
+            flow_display = f"{flow[t_index]:.2f} L/min"
+        else:
+            flow_display = 'N/A'
+        
+        fig.suptitle(f"Inlet Temp: {inlet_display} | Outlet Temp: {outlet_display} | Coolant Flow: {flow_display}", fontsize=14, fontweight='bold')
+        fig.canvas.draw_idle()
 
     slider.on_changed(update)
 
@@ -284,23 +282,18 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
 
     ani = FuncAnimation(fig, animate, interval=200)
 
-    # Call the update function to display the initial frame with Inlet and Outlet temperatures
     update(0)
-
     plt.show()
 
 def main(db_path, lookup_table_path, file_id):
-    # Load the lookup table
     lookup_table = pd.read_csv(lookup_table_path)
 
     sensors_per_module = 2
     strings_count = 3
 
-    # Extract temperatures and sensor numbers based on the lookup table and file_id
     temperatures, sensor_numbers = extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id)
 
-    # Extract the inlet and outlet temperatures based on the lookup table
-    inlet_temp, outlet_temp = extract_inlet_outlet_temperatures(db_path, file_id, lookup_table)
+    inlet_temp, outlet_temp, flow = extract_inlet_outlet_flow(db_path, file_id, lookup_table)
 
     # Custom sensor order (example, update with real physical layout)
     custom_sensor_order = [
@@ -309,8 +302,6 @@ def main(db_path, lookup_table_path, file_id):
         17, 18, 19, 20, 21, 22, 23, 24, 
         16, 15, 14, 13, 12, 11, 10, 9,
         1, 2, 3, 4, 5, 6, 7, 8,
-        # Inlet and Outlet sensors
-        101, 102,   # Inlet = 101, Outlet = 102
         # Layer 2
         48, 47, 46, 45, 44, 43, 42, 41, 
         33, 34, 35, 36, 37, 38, 39, 40, 
@@ -324,7 +315,7 @@ def main(db_path, lookup_table_path, file_id):
     ]
 
     if len(temperatures) > 0:
-        interactive_battery_layout(temperatures, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order, inlet_temp, outlet_temp)
+        interactive_battery_layout(temperatures, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order, inlet_temp, outlet_temp, flow)
     else:
         print("No temperature data found.")
 
