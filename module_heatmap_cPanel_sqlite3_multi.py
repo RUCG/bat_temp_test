@@ -59,6 +59,68 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
     all_temperatures_trimmed = [temps[:min_length] for temps in all_temperatures]
     return np.array(all_temperatures_trimmed), sensor_numbers
 
+def extract_inlet_outlet_temperatures(db_path, file_id_value, lookup_table):
+    conn = None
+    inlet_temperature = []
+    outlet_temperature = []
+    
+    try:
+        print(f"Connecting to database at: {db_path}")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        print(f"Looking up inlet and outlet temperatures for file ID: {file_id_value}")
+
+        # Get all entries for inlet and outlet temperatures
+        inlet_info_list = lookup_table[(lookup_table['File.ID'] == file_id_value) & (lookup_table['SensorNumber'] == 101)]
+        outlet_info_list = lookup_table[(lookup_table['File.ID'] == file_id_value) & (lookup_table['SensorNumber'] == 102)]
+
+        # Debugging: Check entries found
+        print(f"Found {len(inlet_info_list)} entries for inlet temperature in the lookup table.")
+        print(f"Found {len(outlet_info_list)} entries for outlet temperature in the lookup table.")
+
+        # Attempt to retrieve inlet temperature data from all available entries until successful
+        for index, inlet_info in inlet_info_list.iterrows():
+            inlet_table = inlet_info['Table.Name']
+            inlet_column = inlet_info['Channel.Name']
+            print(f"Trying to extract inlet temperature from table '{inlet_table}' and column '{inlet_column}'")
+
+            query = f"SELECT {inlet_column} FROM {inlet_table} WHERE file_id = ?"
+            cursor.execute(query, (file_id_value,))
+            inlet_temperature = [temp[0] for temp in cursor.fetchall() if temp[0] is not None]
+
+            if inlet_temperature:
+                print(f"Successfully retrieved inlet temperature data from table '{inlet_table}': {inlet_temperature}")
+                break  # Stop once data is found
+            else:
+                print(f"No inlet temperature data found in table '{inlet_table}'.")
+
+        # Attempt to retrieve outlet temperature data from all available entries until successful
+        for index, outlet_info in outlet_info_list.iterrows():
+            outlet_table = outlet_info['Table.Name']
+            outlet_column = outlet_info['Channel.Name']
+            print(f"Trying to extract outlet temperature from table '{outlet_table}' and column '{outlet_column}'")
+
+            query = f"SELECT {outlet_column} FROM {outlet_table} WHERE file_id = ?"
+            cursor.execute(query, (file_id_value,))
+            outlet_temperature = [temp[0] for temp in cursor.fetchall() if temp[0] is not None]
+
+            if outlet_temperature:
+                print(f"Successfully retrieved outlet temperature data from table '{outlet_table}': {outlet_temperature}")
+                break  # Stop once data is found
+            else:
+                print(f"No outlet temperature data found in table '{outlet_table}'.")
+
+    except Exception as e:
+        print(f"Database error: {e}")
+    finally:
+        if conn:
+            print("Closing database connection.")
+            conn.close()
+    
+    print(f"Returning inlet temperatures: {inlet_temperature}")
+    print(f"Returning outlet temperatures: {outlet_temperature}")
+    return inlet_temperature, outlet_temperature
 
 def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=30, title="Battery Temperature Layout"):
     # Load the background image
@@ -66,101 +128,105 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
     background_img = plt.imread(background_image_path)
     
     image_height, image_width = background_img.shape[:2]
-    
-    # White area dimensions in the center where the heatmap should be displayed
     white_area_width = 486
     white_area_height = 212
     x_start = (image_width - white_area_width + 40) / 2
     x_end = x_start + white_area_width
     y_start = (image_height - white_area_height) / 2
     y_end = y_start + white_area_height
-    
-    # Convert pixel coordinates to 'extent' for imshow (left, right, bottom, top)
     heatmap_extent = [x_start, x_end, y_start, y_end]
+    
+    data_at_timestamp = data[:, t_index]  # Get data for the current timestamp
 
-    # Extract data for the current time index
-    data_at_timestamp = data[:, t_index]
+    actual_sensor_count = len(sensor_numbers)
+    adjusted_custom_sensor_order = [sensor for sensor in custom_sensor_order if sensor <= actual_sensor_count]
 
-    # Reorder data for each layer using the `custom_sensor_order`
-    total_sensors = len(sensor_numbers) // strings_count  # Total sensors per layer
+    # Check consistency of sensor data
+    total_sensors = actual_sensor_count // strings_count
     reordered_layers = []
     reordered_sensor_numbers_layers = []
 
     for layer in range(strings_count):
         start_idx = layer * total_sensors
-        end_idx = start_idx + total_sensors
+        end_idx = min(start_idx + total_sensors, len(adjusted_custom_sensor_order))
 
-        layer_sensor_order = custom_sensor_order[start_idx:end_idx]
-        
-        # Reorder data and sensor numbers for this specific layer
-        reordered_data_layer = np.zeros_like(data_at_timestamp[start_idx:end_idx])
-        reordered_sensor_numbers_layer = [None] * len(sensor_numbers[start_idx:end_idx])
-        
+        layer_sensor_order = adjusted_custom_sensor_order[start_idx:end_idx]
+
+        reordered_data_layer = np.full(len(layer_sensor_order), np.nan)  # Initialize with NaNs
+        reordered_sensor_numbers_layer = [None] * len(layer_sensor_order)
+
         for idx, sensor_order in enumerate(layer_sensor_order):
-            reordered_data_layer[idx] = data_at_timestamp[sensor_order - 1]
-            reordered_sensor_numbers_layer[idx] = sensor_numbers[sensor_order - 1]
-        
+            if sensor_order - 1 < len(data_at_timestamp):
+                reordered_data_layer[idx] = data_at_timestamp[sensor_order - 1]
+                reordered_sensor_numbers_layer[idx] = sensor_numbers[sensor_order - 1]
+            else:
+                print(f"Warning: Sensor order {sensor_order} out of bounds for data length {len(data_at_timestamp)}")
+
         reordered_layers.append(reordered_data_layer)
         reordered_sensor_numbers_layers.append(reordered_sensor_numbers_layer)
 
-    # Iterate over each string (battery string) for plotting
+    # Plot each layer of the battery
     for string_index in range(strings_count):
         ax = axes[string_index]
         ax.clear()
-
-        # Display the background image
         ax.imshow(background_img, extent=[0, image_width, 0, image_height], aspect='auto', zorder=1)
 
-        # Create the grid_data for the heatmap
-        grid_data = np.zeros((4, 4 * sensors_per_module))  # Initialize grid data
+        grid_data = np.full((4, 4 * sensors_per_module), np.nan)  # Initialize grid data with NaNs
         reordered_data_flat = reordered_layers[string_index].flatten()
-        
-        # Populate the grid_data with temperature values
+
         sensor_idx = 0
-        for i in range(4):  # Rows
-            for j in range(4):  # Columns
-                grid_data[i, j * sensors_per_module:(j + 1) * sensors_per_module] = reordered_data_flat[sensor_idx:sensor_idx + sensors_per_module]
+        for i in range(4):
+            for j in range(4):
+                data_to_insert = reordered_data_flat[sensor_idx:sensor_idx + sensors_per_module]
+                
+                # Only insert if data is complete
+                if len(data_to_insert) == sensors_per_module:
+                    grid_data[i, j * sensors_per_module:(j + 1) * sensors_per_module] = data_to_insert
+                else:
+                    print(f"Warning: Incomplete data at grid position ({i}, {j}). Expected {sensors_per_module}, got {len(data_to_insert)}")
+                
                 sensor_idx += sensors_per_module
 
-        # Display the heatmap in the center of the whitespace using the calculated extent
         heatmap = ax.imshow(grid_data, cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=1.0, zorder=2)
 
-        # Annotate with sensor information now, ensuring perfect overlap
-        num_rows, num_cols = grid_data.shape
-        cell_width = (x_end - x_start) / num_cols
-        cell_height = (y_end - y_start) / num_rows
+        # Annotate sensor data
+        cell_width = (x_end - x_start) / (4 * sensors_per_module)
+        cell_height = (y_end - y_start) / 4
 
-        # Annotate the sensor data for the current layer
         sensor_idx = 0
-        for i in range(num_rows):
-            for j in range(num_cols):
+        for i in range(4):
+            for j in range(4 * sensors_per_module):
                 annotation_x = x_start + (j + 0.5) * cell_width
-                annotation_y = y_start + (num_rows - i - 0.5) * cell_height
-                
+                annotation_y = y_start + (4 - i - 0.5) * cell_height
                 temp = grid_data[i, j]
-                original_sensor_number = reordered_sensor_numbers_layers[string_index][sensor_idx]
-
-                ax.text(annotation_x, annotation_y, f'Sensor {original_sensor_number}\n{temp:.1f}°C',
-                        ha='center', va='center', color='black', fontsize=8, zorder=3)
+                
+                if sensor_idx < len(reordered_sensor_numbers_layers[string_index]):
+                    original_sensor_number = reordered_sensor_numbers_layers[string_index][sensor_idx]
+                    if original_sensor_number is not None and not np.isnan(temp):
+                        ax.text(annotation_x, annotation_y, f'Sensor {original_sensor_number}\n{temp:.1f}°C',
+                                ha='center', va='center', color='black', fontsize=8, zorder=3)
+                
                 sensor_idx += 1
 
         if cbar_list[string_index] is None:
             cbar_list[string_index] = ax.figure.colorbar(heatmap, ax=ax)
 
         ax.set_xlim(0, image_width)
-        ax.set_ylim(image_height, 0)  # Reverse y-axis to match image coordinate system
+        ax.set_ylim(image_height, 0)
         ax.set_title(f'{title} (Layer {string_index + 1}, Time Index: {t_index + 1} / {total_frames})')
 
     plt.tight_layout(pad=3.0)
 
-def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order):
+def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order, inlet_temp, outlet_temp):
     total_frames = data.shape[1]
     fig, axes = plt.subplots(strings_count, 1, figsize=(10, 5 * strings_count))
     cbar_list = [None] * strings_count
 
+    # Slider for controlling the time frame
     ax_slider = plt.axes([0.25, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
     slider = Slider(ax_slider, 'Time', 0, total_frames - 1, valinit=0, valstep=1)
 
+    # Play/Pause, Fast Forward, and Rewind buttons
     ax_button_play = plt.axes([0.8, 0.02, 0.1, 0.04])
     button_play = Button(ax_button_play, 'Play/Pause')
 
@@ -175,7 +241,21 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
     def update(val):
         t_index = int(slider.val)
         plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order)
-        fig.canvas.draw_idle()
+        
+        # Display the inlet and outlet temperatures at the current time index
+        if len(inlet_temp) > t_index and inlet_temp[t_index] is not None:
+            inlet_display = f"{inlet_temp[t_index]:.2f} °C"
+        else:
+            inlet_display = 'N/A'
+        if len(outlet_temp) > t_index and outlet_temp[t_index] is not None:
+            outlet_display = f"{outlet_temp[t_index]:.2f} °C"
+        else:
+            outlet_display = 'N/A'
+        
+        # Display the temperatures at the top of the figure
+        fig.suptitle(f"Inlet Temperature: {inlet_display}    Outlet Temperature: {outlet_display}", fontsize=14, fontweight='bold')
+
+        fig.canvas.draw_idle()  # Refresh the canvas to show changes
 
     slider.on_changed(update)
 
@@ -204,41 +284,52 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
 
     ani = FuncAnimation(fig, animate, interval=200)
 
-    # Rufe die update-Funktion auf, um die erste Heatmap sofort anzuzeigen
-    update(0)  # Erste Heatmap direkt beim Start zeichnen
+    # Call the update function to display the initial frame with Inlet and Outlet temperatures
+    update(0)
 
     plt.show()
 
 def main(db_path, lookup_table_path, file_id):
+    # Load the lookup table
     lookup_table = pd.read_csv(lookup_table_path)
 
     sensors_per_module = 2
     strings_count = 3
 
+    # Extract temperatures and sensor numbers based on the lookup table and file_id
     temperatures, sensor_numbers = extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id)
 
+    # Extract the inlet and outlet temperatures based on the lookup table
+    inlet_temp, outlet_temp = extract_inlet_outlet_temperatures(db_path, file_id, lookup_table)
+
+    # Custom sensor order (example, update with real physical layout)
     custom_sensor_order = [
+        # Layer 1
         32, 31, 30, 29, 28, 27, 26, 25,
-        17, 18, 19, 20, 21, 22, 23, 24,
+        17, 18, 19, 20, 21, 22, 23, 24, 
         16, 15, 14, 13, 12, 11, 10, 9,
         1, 2, 3, 4, 5, 6, 7, 8,
-        48, 47, 46, 45, 44, 43, 42, 41,
-        33, 34, 35, 36, 37, 38, 39, 40,
-        64, 63, 62, 61, 60, 59, 58, 57,
-        49, 50, 51, 52, 53, 54, 55, 56,
-        96, 95, 94, 93, 92, 91, 90, 89,
-        81, 82, 83, 84, 85, 86, 87, 88,
-        80, 79, 78, 77, 76, 75, 74, 73,
+        # Inlet and Outlet sensors
+        101, 102,   # Inlet = 101, Outlet = 102
+        # Layer 2
+        48, 47, 46, 45, 44, 43, 42, 41, 
+        33, 34, 35, 36, 37, 38, 39, 40, 
+        64, 63, 62, 61, 60, 59, 58, 57, 
+        49, 50, 51, 52, 53, 54, 55, 56, 
+        # Layer 3
+        96, 95, 94, 93, 92, 91, 90, 89, 
+        81, 82, 83, 84, 85, 86, 87, 88, 
+        80, 79, 78, 77, 76, 75, 74, 73, 
         65, 66, 67, 68, 69, 70, 71, 72
     ]
 
     if len(temperatures) > 0:
-        interactive_battery_layout(temperatures, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order)
+        interactive_battery_layout(temperatures, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order, inlet_temp, outlet_temp)
     else:
         print("No temperature data found.")
 
 if __name__ == "__main__":
     db_path = "mf4_data.db"
-    lookup_table_path = "db_lookup_table.csv"
-    file_id = "TCP0014_Run1_01.MF4"
+    lookup_table_path = "db_lookup_table_copy_2.csv"
+    file_id = "TCP0014_Run19_02.MF4"
     main(db_path, lookup_table_path, file_id)
