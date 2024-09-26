@@ -124,6 +124,37 @@ def extract_inlet_outlet_flow(db_path, file_id_value, lookup_table):
     
     return inlet_temperature, outlet_temperature, coolant_flow
 
+def calculation_heat_flux(volumenstrom, temp_inlet, temp_outlet):
+    """
+    Berechnet den Wärmestrom Q_HVB durch die Kühlflüssigkeit.
+
+    Parameter:
+    - volumenstrom (V'): Volumenstrom der Kühlflüssigkeit in m^3/s
+    - temp_inlet (TI): Temperatur Batterie Inlet in °C
+    - temp_outlet (TO): Temperatur Batterie Outlet in °C
+
+    Rückgabe:
+    - Der berechnete Wärmestrom Q_HVB in Watt (W)
+    """
+    # Harcoded parameters
+    cw = 4186    # Spezifische Wärmekapazität Wasser in J/(kg*K)
+    cg = 3350    # Spezifische Wärmekapazität Glycol in J/(kg*K) @ 25°C (antifrost mt-650)
+    pw = 0.5     # Anteil Wasser (60%)
+    pg = 0.5     # Anteil Glycol (40%)
+    rho_w = 1000 # Spezifische Dichte Wasser in kg/m^3
+    rho_g = 1070 # Spezifische Dichte Glycol in kg/m^3 @ 25°C (antifrost mt-650)
+
+    # Temperaturdifferenz zwischen Einlass und Auslass
+    delta_t = temp_outlet - temp_inlet
+    
+    # Berechnung des Wärmestroms
+    heat_flux = volumenstrom * delta_t * (pw * cw * rho_w + pg * cg * rho_g)
+
+    print(f"Der berechnete Wärmestrom Q_HVB beträgt: {heat_flux:.2f} W")
+    
+    return heat_flux
+
+
 def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=30, title="Battery Temperature Layout"):
     # Load the background image
     background_image_path = "/Users/gian/Documents/bat_temp_test/coolingplate_edited.png"
@@ -237,22 +268,34 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
         t_index = int(slider.val)
         plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order)
         
+        # Check the current inlet, outlet temperature, and flow
         if len(inlet_temp) > t_index and inlet_temp[t_index] is not None:
             inlet_display = f"{inlet_temp[t_index]:.2f} °C"
         else:
             inlet_display = 'N/A'
-        
+            
         if len(outlet_temp) > t_index and outlet_temp[t_index] is not None:
             outlet_display = f"{outlet_temp[t_index]:.2f} °C"
         else:
             outlet_display = 'N/A'
-        
+            
         if len(flow) > t_index and flow[t_index] is not None:
+            # Assuming flow is in L/min, convert to m^3/s
+            flow_m3_s = flow[t_index] / 60000  # Conversion from L/min to m^3/s
             flow_display = f"{flow[t_index]:.2f} L/min"
         else:
             flow_display = 'N/A'
+            flow_m3_s = 0
         
-        fig.suptitle(f"Inlet Temp: {inlet_display} | Outlet Temp: {outlet_display} | Coolant Flow: {flow_display}", fontsize=14, fontweight='bold')
+        # Calculate heat flow if all values are available
+        if inlet_display != 'N/A' and outlet_display != 'N/A' and flow_display != 'N/A':
+            heat_flux = calculation_heat_flux(flow_m3_s, inlet_temp[t_index], outlet_temp[t_index])
+            heat_flow_display = f"Q_HVB: {heat_flux:.2f} W"
+        else:
+            heat_flow_display = "Q_HVB: N/A"
+        
+        # Update the figure title to include heat flow
+        fig.suptitle(f"Inlet Temp: {inlet_display} | Outlet Temp: {outlet_display} | Coolant Flow: {flow_display} | {heat_flow_display}", fontsize=14, fontweight='bold')
         fig.canvas.draw_idle()
 
     slider.on_changed(update)
