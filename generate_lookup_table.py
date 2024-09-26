@@ -15,8 +15,7 @@ tables = cursor.fetchall()
 pattern = re.compile(r'^moduleTemperature(\d+)_BMS01$', re.IGNORECASE)
 
 # Zusätzliche Spaltennamen für Inlet-, Outlet-Temperaturen und Coolant Flow
-inlet_outlet_columns = ['coolantInletTemperature_BMS05', 'coolantOutletTemperature_BMS05',
-                        'coolantInletTemperature_BMS01', 'coolantOutletTemperature_BMS01']
+inlet_outlet_columns = ['VCU_AI_BatTempIn_Mean', 'VCU_AI_BatTempOut_Mean']
 coolant_flow_signal = 'VCU_AI_ClntFlow_Mean'  # Signalname für den Kühlmittelfluss
 
 # Liste zum Speichern der gefundenen Signale
@@ -55,7 +54,7 @@ for table in tables:
         # Prüfen auf Inlet- und Outlettemperaturspalten
         if column_name in inlet_outlet_columns:
             # Füge sie mit einem speziellen Sensornummer-Code hinzu, z. B. 101 für Inlet und 102 für Outlet
-            sensor_number = 101 if 'Inlet' in column_name else 102
+            sensor_number = 101 if 'In_Mean' in column_name else 102
             if file_id_column:
                 cursor.execute(f"SELECT DISTINCT file_id FROM {table_name}")
                 file_ids = cursor.fetchall()
