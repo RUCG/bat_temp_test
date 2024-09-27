@@ -3,4 +3,3 @@ matplotlib==3.6.3      # Plotting library
 numpy==1.23.5          # Numerical calculations
 tqdm                   # Progress bar library
 asammdf                # Library for handling MDF files
-dgfvfewv

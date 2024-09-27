@@ -7,6 +7,9 @@ mf4_data.db
 # Ignore files in the testrun_logs directory
 testrun_logs/
 
+# Ignore my Venv
+myvenv/
+
 # Ignore log files
 *.log
 
