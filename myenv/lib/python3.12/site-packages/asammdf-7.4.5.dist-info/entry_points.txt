@@ -1,0 +1,2 @@
+[console_scripts]
+asammdf = asammdf.gui.asammdfgui:main [gui,export,decode]
