@@ -365,5 +365,5 @@ def main(db_path, lookup_table_path, file_id):
 if __name__ == "__main__":
     db_path = "mf4_data.db"
     lookup_table_path = "db_lookup_table.csv"
-    file_id = "TCP0014_Run17_01.MF4"
+    file_id = "TCP0014_Run11_01.MF4"
     main(db_path, lookup_table_path, file_id)

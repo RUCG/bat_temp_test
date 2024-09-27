@@ -1,9 +1,27 @@
 import sqlite3
 from asammdf import MDF
 import os
+from tqdm import tqdm  # Import the tqdm library for progress display
 
-# List of MF4 files to import
-file_paths = ["TCP0014_Run19_02.MF4", "TCP0014_Run1_01.MF4", "TCP0014_Run17_01.MF4"]  # Add more files as needed
+# Directory containing the MF4 files
+logs_directory = "testrun_logs"
+
+# Check if the directory exists
+if not os.path.exists(logs_directory):
+    print(f"The directory '{logs_directory}' does not exist. Please check the path.")
+    exit()
+
+# Search for all MF4 files in the specified directory and its subdirectories
+file_paths = []
+for root, dirs, files in os.walk(logs_directory):
+    for file in files:
+        if file.endswith(".MF4"):
+            file_paths.append(os.path.join(root, file))
+
+# Check if any files were found
+if not file_paths:
+    print(f"No MF4 files found in the directory '{logs_directory}'.")
+    exit()
 
 # Connect to the SQLite database
 db_path = "mf4_data.db"
@@ -13,9 +31,8 @@ cursor = conn.cursor()
 # Error logging
 error_log = []
 
-# Function to create or update a table for a group with 'file_id' column
+# Function to create or update a table for a group with a 'file_id' column
 def create_or_update_table(group_name, channels):
-    # Check if the table already exists
     cursor.execute(f"PRAGMA table_info({group_name})")
     columns_info = cursor.fetchall()
 
@@ -38,7 +55,7 @@ def create_or_update_table(group_name, channels):
                 print(error_message)
                 error_log.append(error_message)
 
-        # Check if there are new channels to add
+        # Check if there are new columns to add
         new_columns = [f"{channel} REAL" for channel in channels if channel not in existing_columns]
         for column in new_columns:
             try:
@@ -48,30 +65,46 @@ def create_or_update_table(group_name, channels):
                 print(error_message)
                 error_log.append(error_message)
 
-# Loop through all MF4 files
-for file_path in file_paths:
+# Function to check if a file is already loaded based on 'file_id'
+def is_file_already_loaded(file_name):
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = cursor.fetchall()
+    
+    # Check all tables for this file_id
+    for table in tables:
+        table_name = table[0]
+        cursor.execute(f"SELECT 1 FROM {table_name} WHERE file_id = ?", (file_name,))
+        if cursor.fetchone():
+            return True
+    return False
+
+# Process all MF4 files found in the directory
+for file_path in tqdm(file_paths, desc="Processing MF4 files", unit="file"):
     file_name = os.path.basename(file_path)  # Use filename as unique 'file_id'
-    print(f"Processing file: {file_name}")
+
+    # Check if the file has already been processed
+    if is_file_already_loaded(file_name):
+        print(f"File '{file_name}' is already loaded in the database. Skipping...")
+        continue
+
+    print(f"\nProcessing file: {file_name}")
 
     # Open the MDF file and clean up the timestamps
     with MDF(file_path) as mdf:
         mdf.cleanup_timestamps(minimum=0, maximum=float('inf'))
 
-        # Loop through all groups and channels
-        for group_index, group in enumerate(mdf.groups):
+        # Process each group with a progress bar
+        for group_index, group in tqdm(enumerate(mdf.groups), desc=f"Processing groups in {file_name}", total=len(mdf.groups), unit="group", leave=False):
             group_name = f"Group_{group_index}"
             channels = [channel.name for channel in group.channels]
 
             # Create or update the table for the group
             create_or_update_table(group_name, channels)
 
-            # Debugging: Show how many channels are in the group
-            print(f"Processing group {group_name} with {len(group.channels)} channels.")
-
             # Dictionary to group data by timestamp
             data_by_timestamp = {}
 
-            # Get the data for each channel
+            # Process each channel within the group
             for channel in group.channels:
                 try:
                     signal = mdf.get(channel.name, group=group_index)
