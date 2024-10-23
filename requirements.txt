@@ -1,5 +1,5 @@
-pandas==1.5.2          # Data manipulation library
-matplotlib==3.6.3      # Plotting library
-numpy==1.23.5          # Numerical calculations
+pandas          # Data manipulation library
+matplotlib     # Plotting library
+numpy                  # Numerical calculations
 tqdm                   # Progress bar library
 asammdf                # Library for handling MDF files
