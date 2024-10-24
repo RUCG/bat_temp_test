@@ -2,10 +2,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
-import sqlite3
 from matplotlib.widgets import Slider, Button
+from sqlalchemy import create_engine
 import json
-
+import pickle
+import os
+import time
 
 # Function to load configuration from JSON
 def load_config(json_filename="config.json"):
@@ -23,160 +25,159 @@ def load_config(json_filename="config.json"):
         print(f"Error: Could not parse {json_filename}.")
         return None
 
-def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value):
+def cache_data(func):
+    """Decorator to cache data returned by a function."""
+    def wrapper(*args, **kwargs):
+        cache_filename = kwargs.get('cache_filename')
+        force_refresh = kwargs.get('force_refresh', False)
+        
+        # Extract db_path from args or kwargs
+        arg_names = func.__code__.co_varnames[:func.__code__.co_argcount]
+        args_dict = dict(zip(arg_names, args))
+        db_path = kwargs.get('db_path') or args_dict.get('db_path')
+        
+        # Check if cache exists and is up-to-date
+        if cache_filename and os.path.exists(cache_filename) and not force_refresh:
+            cache_mtime = os.path.getmtime(cache_filename)
+            db_mtime = os.path.getmtime(db_path) if db_path and os.path.exists(db_path) else 0
+            if cache_mtime > db_mtime:
+                print(f"Loading data from cache: {cache_filename}")
+                with open(cache_filename, 'rb') as f:
+                    return pickle.load(f)
+        
+        # Call the function and cache its result
+        data = func(*args, **kwargs)
+        if cache_filename:
+            with open(cache_filename, 'wb') as f:
+                pickle.dump(data, f)
+            print(f"Data cached to {cache_filename}")
+        return data
+    return wrapper
+
+@cache_data
+def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value, cache_filename=None, force_refresh=False):
+    start_time = time.time()
+    # Use SQLAlchemy engine for better performance
+    engine = create_engine(f'sqlite:///{db_path}')
+    
+    # Filter lookup table entries matching the current `file_id`
+    signal_info = lookup_table[lookup_table['File.ID'] == file_id_value]
+    relevant_tables = signal_info['Table.Name'].unique()
+
     all_temperatures = []
     sensor_identifiers = []
     min_length = None
     processed_sensors = set()
 
-    conn = None
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+    for table_name in relevant_tables:
+        signals_in_table = signal_info[signal_info['Table.Name'] == table_name]
+        signal_names = signals_in_table['Channel.Name'].tolist()
+        sensor_numbers = signals_in_table['SensorNumber'].tolist()
+        bms_ids = signals_in_table['BMS_ID'].tolist()
 
-        # Filter lookup table entries matching the current `file_id`
-        signal_info = lookup_table[lookup_table['File.ID'] == file_id_value]
-        relevant_tables = set(signal_info['Table.Name'])
+        # Build query to fetch all required signals
+        columns = ', '.join(signal_names)
+        query = f"SELECT {columns} FROM {table_name} WHERE file_id = ?"
 
-        for table_name in relevant_tables:
-            # Query all signals for the relevant table and file_id at once
-            signals_in_table = signal_info[signal_info['Table.Name'] == table_name]
-            signal_names = signals_in_table['Channel.Name'].tolist()
-            query = f"SELECT {', '.join(signal_names)} FROM {table_name} WHERE file_id = ?"
-            
-            try:
-                cursor.execute(query, (file_id_value,))
-                data = cursor.fetchall()
+        try:
+            # Use pandas to read SQL query directly into a DataFrame
+            df = pd.read_sql_query(query, engine, params=(file_id_value,))
+            df.dropna(axis=0, how='all', inplace=True)  # Drop rows where all values are NaN
 
-                for signal_idx, signal_name in enumerate(signal_names):
-                    row_info = signals_in_table.iloc[signal_idx]
-                    sensor_number = row_info['SensorNumber']
-                    bms_id = row_info['BMS_ID']
-                    sensor_identifier = (sensor_number, bms_id)
-                    if sensor_identifier in processed_sensors or sensor_number in [102, 103]:
-                        continue
-                    
-                    temperatures = [row[signal_idx] for row in data if row[signal_idx] is not None]
-                    
-                    if temperatures:
-                        all_temperatures.append(temperatures)
-                        sensor_identifiers.append(sensor_identifier)
-                        processed_sensors.add(sensor_identifier)
+            # Process each signal
+            for idx, signal_name in enumerate(signal_names):
+                sensor_number = sensor_numbers[idx]
+                bms_id = bms_ids[idx]
+                sensor_identifier = (sensor_number, bms_id)
+                if sensor_identifier in processed_sensors or sensor_number in [102, 103]:
+                    continue
 
-                        if min_length is None or len(temperatures) < min_length:
-                            min_length = len(temperatures)
+                temperatures = df[signal_name].dropna().values
 
-            except Exception as e:
-                print(f"Error processing signals in table {table_name}: {e}")
-                all_temperatures.append([])
-                sensor_identifiers.append(None)
+                if len(temperatures) > 0:
+                    all_temperatures.append(temperatures)
+                    sensor_identifiers.append(sensor_identifier)
+                    processed_sensors.add(sensor_identifier)
 
-    except Exception as e:
-        print(f"Database error: {e}")
-    finally:
-        if conn:
-            conn.close()
+                    if min_length is None or len(temperatures) < min_length:
+                        min_length = len(temperatures)
+        except Exception as e:
+            print(f"Error processing table {table_name}: {e}")
 
     if min_length is None:
         min_length = 0
 
+    # Trim all temperature arrays to the minimum length
     all_temperatures_trimmed = [temps[:min_length] for temps in all_temperatures]
-    return np.array(all_temperatures_trimmed), sensor_identifiers
+    temperatures_array = np.array(all_temperatures_trimmed)
 
-def extract_inlet_outlet_flow(db_path, file_id_value, lookup_table):
-    conn = None
+    end_time = time.time()
+    print(f"Temperature data extraction took {end_time - start_time:.2f} seconds")
+
+    return temperatures_array, sensor_identifiers
+
+@cache_data
+def extract_inlet_outlet_flow(db_path, file_id_value, lookup_table, cache_filename=None, force_refresh=False):
+    start_time = time.time()
+    engine = create_engine(f'sqlite:///{db_path}')
+
     inlet_temperature = []
     outlet_temperature = []
     coolant_flow = []
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
 
-        # Get signal info for the file ID
-        signal_info = lookup_table[lookup_table['File.ID'] == file_id_value]
+    # Get signal info for the file ID
+    signal_info = lookup_table[lookup_table['File.ID'] == file_id_value]
 
-        # Inlet temperature (SensorNumber 101)
-        inlet_signals = signal_info[signal_info['SensorNumber'] == 101]
-        for index, inlet_info in inlet_signals.iterrows():
-            inlet_table = inlet_info['Table.Name']
-            inlet_column = inlet_info['Channel.Name']
+    # Signals to extract
+    signals = {
+        'inlet': {'SensorNumber': 101, 'data': None},
+        'outlet': {'SensorNumber': 102, 'data': None},
+        'flow': {'SensorNumber': 103, 'data': None},
+    }
 
-            query = f"SELECT {inlet_column} FROM {inlet_table} WHERE file_id = ?"
-            cursor.execute(query, (file_id_value,))
-            data = cursor.fetchall()
-            inlet_temp = [row[0] for row in data if row[0] is not None]
-            if inlet_temp:
-                inlet_temperature = inlet_temp
-                print(f"Found inlet temperature data in table {inlet_table}")
-                break  # Stop after finding data
+    for key in signals.keys():
+        signal_entries = signal_info[signal_info['SensorNumber'] == signals[key]['SensorNumber']]
+        for _, signal_entry in signal_entries.iterrows():
+            table_name = signal_entry['Table.Name']
+            column_name = signal_entry['Channel.Name']
+            query = f"SELECT {column_name} FROM {table_name} WHERE file_id = ?"
+            try:
+                df = pd.read_sql_query(query, engine, params=(file_id_value,))
+                df.dropna(inplace=True)
+                if not df.empty:
+                    signals[key]['data'] = df[column_name].values
+                    print(f"Found {key} data in table {table_name}")
+                    break  # Stop after finding data
+            except Exception as e:
+                print(f"Error processing {key} data from table {table_name}: {e}")
 
-        # Outlet temperature (SensorNumber 102)
-        outlet_signals = signal_info[signal_info['SensorNumber'] == 102]
-        for index, outlet_info in outlet_signals.iterrows():
-            outlet_table = outlet_info['Table.Name']
-            outlet_column = outlet_info['Channel.Name']
+    inlet_temperature = signals['inlet']['data'] if signals['inlet']['data'] is not None else []
+    outlet_temperature = signals['outlet']['data'] if signals['outlet']['data'] is not None else []
+    coolant_flow = signals['flow']['data'] if signals['flow']['data'] is not None else []
 
-            query = f"SELECT {outlet_column} FROM {outlet_table} WHERE file_id = ?"
-            cursor.execute(query, (file_id_value,))
-            data = cursor.fetchall()
-            outlet_temp = [row[0] for row in data if row[0] is not None]
-            if outlet_temp:
-                outlet_temperature = outlet_temp
-                print(f"Found outlet temperature data in table {outlet_table}")
-                break  # Stop after finding data
+    # Debugging: Print the retrieved values
+    if len(inlet_temperature) > 0:
+        print(f"Inlet Temperature: {inlet_temperature[:5]}...")  # Print first 5 for brevity
+    else:
+        print("No inlet temperature data found.")
 
-        # Coolant flow (SensorNumber 103)
-        flow_signals = signal_info[signal_info['SensorNumber'] == 103]
-        for index, flow_info in flow_signals.iterrows():
-            flow_table = flow_info['Table.Name']
-            flow_column = flow_info['Channel.Name']
+    if len(outlet_temperature) > 0:
+        print(f"Outlet Temperature: {outlet_temperature[:5]}...")
+    else:
+        print("No outlet temperature data found.")
 
-            query = f"SELECT {flow_column} FROM {flow_table} WHERE file_id = ?"
-            cursor.execute(query, (file_id_value,))
-            data = cursor.fetchall()
-            flow_data = [row[0] for row in data if row[0] is not None]
-            if flow_data:
-                coolant_flow = flow_data
-                print(f"Found coolant flow data in table {flow_table}")
-                break  # Stop after finding data
+    if len(coolant_flow) > 0:
+        print(f"Coolant Flow: {coolant_flow[:5]}...")
+    else:
+        print("No coolant flow data found.")
 
-        # Debugging: Print the retrieved values
-        if inlet_temperature:
-            print(f"Inlet Temperature: {inlet_temperature[:5]}...")  # Print first 5 for brevity
-        else:
-            print("No inlet temperature data found.")
-        
-        if outlet_temperature:
-            print(f"Outlet Temperature: {outlet_temperature[:5]}...")
-        else:
-            print("No outlet temperature data found.")
-        
-        if coolant_flow:
-            print(f"Coolant Flow: {coolant_flow[:5]}...")
-        else:
-            print("No coolant flow data found.")
+    end_time = time.time()
+    print(f"Inlet/Outlet/Flow data extraction took {end_time - start_time:.2f} seconds")
 
-    except Exception as e:
-        print(f"Database error: {e}")
-    finally:
-        if conn:
-            conn.close()
-    
     return inlet_temperature, outlet_temperature, coolant_flow
 
 def calculation_heat_flux(volumenstrom, temp_inlet, temp_outlet):
-    """
-    Calculates the heat flux Q_HVB through the coolant.
-
-    Parameters:
-    - volumenstrom: Coolant volumetric flow rate in m^3/s
-    - temp_inlet: Battery inlet temperature in °C
-    - temp_outlet: Battery outlet temperature in °C
-
-    Returns:
-    - The calculated heat flux Q_HVB in Watts (W)
-    """
+    # ... [same as before]
     # Hardcoded parameters
     cw = 4186    # Specific heat capacity of water in J/(kg*K)
     cg = 3350    # Specific heat capacity of glycol in J/(kg*K)
@@ -435,9 +436,25 @@ def main(db_path, lookup_table_path, file_id, vmin, vmax):
     sensors_per_module_list = [2, 2, 2, 2, 2, 2]  # Adjust if necessary
     strings_count = 6  # Total number of layers
 
-    temperatures, sensor_identifiers = extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id)
+    # Define cache filenames
+    temp_cache_filename = f"temp_data_{file_id}.pkl"
+    flow_cache_filename = f"flow_data_{file_id}.pkl"
 
-    inlet_temp, outlet_temp, flow = extract_inlet_outlet_flow(db_path, file_id, lookup_table)
+    # Extract temperatures and sensor identifiers, using caching
+    temperatures, sensor_identifiers = extract_temperatures_and_sensor_numbers(
+        db_path,
+        lookup_table,
+        file_id,
+        cache_filename=temp_cache_filename
+    )
+
+    # Extract inlet, outlet temperatures and coolant flow, using caching
+    inlet_temp, outlet_temp, flow = extract_inlet_outlet_flow(
+        db_path,
+        file_id,
+        lookup_table,
+        cache_filename=flow_cache_filename
+    )
 
     # Custom sensor order (update with actual sensor numbers and BMS_IDs)
     custom_sensor_order = [
