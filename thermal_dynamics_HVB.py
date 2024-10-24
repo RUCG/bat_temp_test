@@ -4,6 +4,24 @@ import numpy as np
 from matplotlib.animation import FuncAnimation
 import sqlite3
 from matplotlib.widgets import Slider, Button
+import json
+
+
+# Function to load configuration from JSON
+def load_config(json_filename="config.json"):
+    """Load configuration from a JSON file."""
+    try:
+        with open(json_filename, 'r') as f:
+            config_data = json.load(f)
+        print(f"Configuration loaded from {json_filename}:")
+        print(config_data)
+        return config_data
+    except FileNotFoundError:
+        print(f"Error: Configuration file {json_filename} not found.")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error: Could not parse {json_filename}.")
+        return None
 
 def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value):
     all_temperatures = []
@@ -210,6 +228,7 @@ def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strin
     
     reordered_layers = []
     reordered_sensor_numbers_layers = []
+    mean_temperatures = []  # List to store mean temperatures for each layer
 
     for layer in range(strings_count):
         sensors_per_module = sensors_per_module_list[layer]
@@ -243,6 +262,10 @@ def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strin
         reordered_layers.append(reordered_data_layer)
         reordered_sensor_numbers_layers.append(reordered_sensor_numbers_layer)
 
+        # Calculate the mean temperature for the layer (ignoring NaN values)
+        mean_temperature = np.nanmean(reordered_data_layer)
+        mean_temperatures.append(mean_temperature)
+
     # Plot each layer of the battery and add a title for each
     for string_index in range(strings_count):
         ax = axes[string_index]
@@ -252,10 +275,11 @@ def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strin
         ax.imshow(background_img, extent=[0, image_width, 0, image_height], aspect='auto', origin='lower', zorder=0)
 
         # Plot heatmap with some transparency so the background is visible
-        heatmap = ax.imshow(reordered_layers[string_index], cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=0.75, origin='lower', zorder=1)
+        heatmap = ax.imshow(reordered_layers[string_index], cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=1, origin='lower', zorder=1)
 
-        # Add a title to each subplot to indicate the layer number
-        ax.set_title(f'Layer {string_index + 1}', fontsize=10, pad=10)
+        # Add a title to each subplot to indicate the layer number and its mean temperature
+        mean_temp = mean_temperatures[string_index]
+        ax.set_title(f'Layer {string_index + 1} | Mean Temp: {mean_temp:.2f}°C', fontsize=10, pad=10)
 
         # Adjust axes limits and aspect ratio
         ax.set_xlim(0, image_width)
@@ -280,7 +304,7 @@ def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strin
 
     return heatmap  # Return heatmap for colorbar creation
 
-def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list, strings_count, custom_sensor_order, inlet_temp, outlet_temp, flow):
+def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list, strings_count, custom_sensor_order, inlet_temp, outlet_temp, flow, vmin, vmax):
     total_frames = data.shape[1]
     
     # Set up a 3 by 2 layout: 2 rows and 3 columns
@@ -317,6 +341,8 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
             axes,
             cbar_list,
             custom_sensor_order,
+            vmin=vmin,  # Pass vmin
+            vmax=vmax,  # Pass vmax
             fig=fig
         )
         
@@ -387,7 +413,7 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
     update(0)
     plt.show()
 
-def main(db_path, lookup_table_path, file_id):
+def main(db_path, lookup_table_path, file_id, vmin, vmax):
     # Load the lookup table from Parquet or CSV
     if lookup_table_path.endswith('.parquet'):
         lookup_table = pd.read_parquet(lookup_table_path)
@@ -440,6 +466,7 @@ def main(db_path, lookup_table_path, file_id):
         (65, '05'), (66, '05'), (67, '05'), (68, '05'), (69, '05'), (70, '05'), (71, '05'), (72, '05'),
     ]
 
+
     if len(temperatures) > 0:
         interactive_battery_layout(
             temperatures,
@@ -449,13 +476,25 @@ def main(db_path, lookup_table_path, file_id):
             custom_sensor_order,
             inlet_temp,
             outlet_temp,
-            flow
+            flow,
+            vmin,  # Pass vmin
+            vmax   # Pass vmax
         )
     else:
         print("No temperature data found.")
 
 if __name__ == "__main__":
-    db_path = "mf4_data.db"
-    lookup_table_path = "db_lookup_table.parquet"  # or 'db_lookup_table.csv'
-    file_id = "TCP0014_Run17_01.MF4"
-    main(db_path, lookup_table_path, file_id)
+    # Load configuration from JSON
+    config_data = load_config("config.json")
+    
+    if config_data:
+        db_path = config_data.get("db_path", "mf4_data.db")
+        lookup_table_path = config_data.get("lookup_table_path", "db_lookup_table.parquet")
+        file_id = config_data.get("file_id", "TCP0014_Run17_01.MF4").strip("'\"")  # Strip any extra quotes
+        vmin = config_data.get("vmin", 15.0)
+        vmax = config_data.get("vmax", 40.0)
+
+        # Pass the loaded values to the main function
+        main(db_path, lookup_table_path, file_id, vmin, vmax)
+    else:
+        print("Error: Could not load configuration. Exiting.")
