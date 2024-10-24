@@ -159,17 +159,12 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
     # Load the background image
     background_image_path = "/Users/gian/Documents/GitHub/bat_temp_test/coolingplate_edited.png"
     
-    # Debugging step: Print the background image path
-    print(f"Loading background image from: {background_image_path}")
-    
     try:
         background_img = plt.imread(background_image_path)
+        print(f"Background image loaded successfully from: {background_image_path}")
     except FileNotFoundError:
         print(f"Error: Background image not found at {background_image_path}")
         return
-
-    # Ensure that the image loaded
-    print("Background image loaded successfully")
 
     image_height, image_width = background_img.shape[:2]
     white_area_width = 486
@@ -183,8 +178,6 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
     # Get the current data at the specific timestamp
     data_at_timestamp = data[:, t_index]
     
-    print(f"Data at timestamp {t_index}:", data_at_timestamp)
-
     total_sensors_per_layer = 4 * sensors_per_module * 4  # 4 rows with 4 columns each
     reordered_layers = []
     reordered_sensor_numbers_layers = []
@@ -222,7 +215,7 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
         reordered_layers.append(reordered_data_layer)
         reordered_sensor_numbers_layers.append(reordered_sensor_numbers_layer)
 
-    # Plot each layer of the battery
+    # Plot each layer of the battery and add a title for each
     for string_index in range(strings_count):
         ax = axes[string_index]
         ax.clear()
@@ -230,10 +223,13 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
         # Display the background image
         ax.imshow(background_img, extent=[0, image_width, 0, image_height], aspect='auto', zorder=1)
 
-        # Plot heatmap with transparency to ensure the background is visible
-        heatmap = ax.imshow(reordered_layers[string_index], cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=0.9, zorder=2)
+        # Plot heatmap with transparency to ensure the background is more visible
+        heatmap = ax.imshow(reordered_layers[string_index], cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=0.8, zorder=2)
 
-        # Annotate sensor data
+        # Add a title to each subplot to indicate the layer number
+        ax.set_title(f'Layer {string_index + 1}', fontsize=10, pad=10)  # Adjust fontsize and padding as needed
+
+        # Annotate sensor data with smaller font size
         cell_width = (x_end - x_start) / (4 * sensors_per_module)
         cell_height = (y_end - y_start) / 4
 
@@ -246,7 +242,7 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
                 
                 if sensor_number is not None and not np.isnan(temp):
                     ax.text(annotation_x, annotation_y, f'Sensor {sensor_number}\n{temp:.1f}°C',
-                            ha='center', va='center', color='black', fontsize=8, zorder=3)
+                            ha='center', va='center', color='black', fontsize=6, zorder=3)
 
     return heatmap  # Return heatmap for colorbar creation
 
