@@ -310,6 +310,9 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
     # Set up a 3 by 2 layout: 2 rows and 3 columns
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))  # 2 rows and 3 columns
     
+    # Adjust the layout to make space above the subplots for metrics
+    plt.subplots_adjust(top=0.85, hspace=0.3, wspace=0.3)  # Adjust hspace and top to create space
+    
     # Flatten the axes for easier iteration (since axes is a 2D array now)
     axes = axes.flatten()
     
@@ -345,25 +348,34 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
             vmax=vmax,  # Pass vmax
             fig=fig
         )
-        
+
         # If it's the first time through, create a single colorbar for the whole figure
         if cbar_list[0] is None:
             cbar_ax = fig.add_axes([0.92, 0.3, 0.02, 0.4])  # Position for colorbar
             fig.colorbar(heatmap, cax=cbar_ax)
             cbar_list[0] = True  # Avoid re-creating the colorbar
-            
+
+        # Calculate the mean temperature for each battery module layer
+        layer_means = []
+        for layer in range(strings_count):
+            layer_data = data[layer * sensors_per_module_list[layer] * 4 : (layer + 1) * sensors_per_module_list[layer] * 4, t_index]
+            mean_temp = np.nanmean(layer_data)  # Mean temperature of the current layer
+            layer_means.append(mean_temp)
+
+        overall_mean_temp = np.nanmean(layer_means)  # Overall mean temperature across all layers
+        max_mean_temp_deviation = np.nanmax([abs(mean_temp - overall_mean_temp) for mean_temp in layer_means])  # Maximum deviation
 
         # Update inlet, outlet, and flow display
         if len(inlet_temp) > t_index and inlet_temp[t_index] is not None:
             inlet_display = f"{inlet_temp[t_index]:.2f} °C"
         else:
             inlet_display = 'N/A'
-            
+
         if len(outlet_temp) > t_index and outlet_temp[t_index] is not None:
             outlet_display = f"{outlet_temp[t_index]:.2f} °C"
         else:
             outlet_display = 'N/A'
-            
+
         if len(flow) > t_index and flow[t_index] is not None:
             flow_value = flow[t_index]
             flow_m3_s = flow_value / 60000  # Convert from L/min to m^3/s
@@ -371,16 +383,16 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
         else:
             flow_display = 'N/A'
             flow_m3_s = 0
-        
+
         # Calculate heat flow if all values are available
         if inlet_display != 'N/A' and outlet_display != 'N/A' and flow_display != 'N/A':
             heat_flux = calculation_heat_flux(flow_m3_s, inlet_temp[t_index], outlet_temp[t_index])
             heat_flow_display = f"Q_HVB: {heat_flux:.2f} W"
         else:
             heat_flow_display = "Q_HVB: N/A"
-        
-        # Update the figure title to include heat flow
-        fig.suptitle(f"Inlet Temp: {inlet_display} | Outlet Temp: {outlet_display} | Coolant Flow: {flow_display} | {heat_flow_display}", fontsize=14, fontweight='bold')
+
+        # Update the figure title to include heat flow and max deviation from mean layer temperature
+        fig.suptitle(f"Inlet Temp: {inlet_display} | Outlet Temp: {outlet_display} | Coolant Flow: {flow_display} | {heat_flow_display} | Max Deviation from Mean Layer Temp: {max_mean_temp_deviation:.2f}°C", fontsize=14, fontweight='bold')
         fig.canvas.draw_idle()
 
     slider.on_changed(update)
