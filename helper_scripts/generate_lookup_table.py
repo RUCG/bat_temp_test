@@ -12,7 +12,7 @@ cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
 tables = cursor.fetchall()
 
 # Regulärer Ausdruck zum Filtern der gewünschten Signale
-pattern = re.compile(r'^moduleTemperature(\d+)_BMS01$', re.IGNORECASE)
+pattern = re.compile(r'^moduleTemperature(\d+)_BMS(01|05)$', re.IGNORECASE)
 
 # Zusätzliche Spaltennamen für Inlet-, Outlet-Temperaturen und Coolant Flow
 inlet_outlet_columns = ['VCU_AI_BatTempIn_Mean', 'VCU_AI_BatTempOut_Mean']
@@ -94,11 +94,11 @@ df = pd.DataFrame(found_columns, columns=['Channel.Name', 'Table.Name', 'SensorN
 # Sortiere das DataFrame nach der Sensornummer (negative Nummern für Inlet/Outlet/Coolant Flow kommen zuerst)
 df = df.sort_values(by='SensorNumber').reset_index(drop=True)
 
-# Speichere das DataFrame als CSV-Datei
-output_csv = '/Users/gian/Documents/bat_temp_test/db_lookup_table.csv'
-df.to_csv(output_csv, index=False)
+# Speichere das DataFrame als Parquet-Datei
+output_parquet = '/Users/gian/Documents/GitHub/bat_temp_test/db_lookup_table.parquet'
+df.to_parquet(output_parquet, index=False)
 
-print(f"Gefundene Signale wurden in '{output_csv}' gespeichert.")
+print(f"Gefundene Signale wurden in '{output_parquet}' gespeichert.")
 
 # Verbindung schließen
 conn.close()
