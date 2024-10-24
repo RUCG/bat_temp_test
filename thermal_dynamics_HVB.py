@@ -7,7 +7,7 @@ from matplotlib.widgets import Slider, Button
 
 def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value):
     all_temperatures = []
-    sensor_numbers = []
+    sensor_identifiers = []
     min_length = None
     processed_sensors = set()
 
@@ -31,16 +31,19 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
                 data = cursor.fetchall()
 
                 for signal_idx, signal_name in enumerate(signal_names):
-                    sensor_number = signals_in_table.iloc[signal_idx]['SensorNumber']
-                    if sensor_number in processed_sensors or sensor_number in [102, 103]:
+                    row_info = signals_in_table.iloc[signal_idx]
+                    sensor_number = row_info['SensorNumber']
+                    bms_id = row_info['BMS_ID']
+                    sensor_identifier = (sensor_number, bms_id)
+                    if sensor_identifier in processed_sensors or sensor_number in [102, 103]:
                         continue
                     
                     temperatures = [row[signal_idx] for row in data if row[signal_idx] is not None]
                     
                     if temperatures:
                         all_temperatures.append(temperatures)
-                        sensor_numbers.append(sensor_number)
-                        processed_sensors.add(sensor_number)
+                        sensor_identifiers.append(sensor_identifier)
+                        processed_sensors.add(sensor_identifier)
 
                         if min_length is None or len(temperatures) < min_length:
                             min_length = len(temperatures)
@@ -48,7 +51,7 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
             except Exception as e:
                 print(f"Error processing signals in table {table_name}: {e}")
                 all_temperatures.append([])
-                sensor_numbers.append(None)
+                sensor_identifiers.append(None)
 
     except Exception as e:
         print(f"Database error: {e}")
@@ -60,7 +63,7 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
         min_length = 0
 
     all_temperatures_trimmed = [temps[:min_length] for temps in all_temperatures]
-    return np.array(all_temperatures_trimmed), sensor_numbers
+    return np.array(all_temperatures_trimmed), sensor_identifiers
 
 def extract_inlet_outlet_flow(db_path, file_id_value, lookup_table):
     conn = None
@@ -176,7 +179,7 @@ def calculation_heat_flux(volumenstrom, temp_inlet, temp_outlet):
 
     return heat_flux
 
-def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=40, title="Battery Temperature Layout", fig=None):
+def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=40, title="Battery Temperature Layout", fig=None):
     # Load the background image
     background_image_path = "/Users/gian/Documents/GitHub/bat_temp_test/coolingplate_edited.png"
     
@@ -205,21 +208,19 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
     # Get the current data at the specific timestamp
     data_at_timestamp = data[:, t_index]
     
-    total_sensors_per_layer = 4 * sensors_per_module * 4  # 4 rows with 4 columns each
     reordered_layers = []
     reordered_sensor_numbers_layers = []
 
     for layer in range(strings_count):
+        sensors_per_module = sensors_per_module_list[layer]
+        total_sensors_per_layer = 4 * sensors_per_module * 4
+
         # Initialize an empty grid with NaNs
         reordered_data_layer = np.full((4, 4 * sensors_per_module), np.nan)
         reordered_sensor_numbers_layer = np.full((4, 4 * sensors_per_module), None, dtype=object)
 
-        # Extract the appropriate slice for the current layer from `custom_sensor_order`
-        start_index = layer * total_sensors_per_layer
+        start_index = sum([4 * sensors_per_module_list[i] * 4 for i in range(layer)])
         end_index = start_index + total_sensors_per_layer
-        
-        if end_index > len(custom_sensor_order):
-            end_index = len(custom_sensor_order)
 
         layer_sensor_indices = custom_sensor_order[start_index:end_index]
         
@@ -230,12 +231,12 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
             for j in range(4 * sensors_per_module):
                 local_index = i * (4 * sensors_per_module) + j
                 if local_index < len(layer_sensor_indices):
-                    sensor_order = layer_sensor_indices[local_index]
+                    sensor_identifier = layer_sensor_indices[local_index]
                     
-                    if sensor_order in sensor_numbers:
-                        sensor_index = sensor_numbers.index(sensor_order)
+                    if sensor_identifier in sensor_identifiers:
+                        sensor_index = sensor_identifiers.index(sensor_identifier)
                         reordered_data_layer[i, j] = data_at_timestamp[sensor_index]
-                        reordered_sensor_numbers_layer[i, j] = sensor_order
+                        reordered_sensor_numbers_layer[i, j] = sensor_identifier
                     else:
                         reordered_sensor_numbers_layer[i, j] = None
 
@@ -262,23 +263,24 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
         ax.set_aspect('equal')
 
         # Annotate sensor data with smaller font size
-        cell_width = (x_end - x_start) / (4 * sensors_per_module)
+        cell_width = (x_end - x_start) / (4 * sensors_per_module_list[string_index])
         cell_height = (y_end - y_start) / 4
 
         for i in range(4):
-            for j in range(4 * sensors_per_module):
+            for j in range(4 * sensors_per_module_list[string_index]):
                 annotation_x = x_start + (j + 0.5) * cell_width
                 annotation_y = y_start + (i + 0.5) * cell_height  # Adjusted for 'lower' origin
                 temp = reordered_layers[string_index][i, j]
                 sensor_number = reordered_sensor_numbers_layers[string_index][i, j]
                 
                 if sensor_number is not None and not np.isnan(temp):
-                    ax.text(annotation_x, annotation_y, f'Sensor {sensor_number}\n{temp:.1f}°C',
+                    sensor_num, bms_id = sensor_number
+                    ax.text(annotation_x, annotation_y, f'Sensor {sensor_num}\n{temp:.1f}°C\nBMS {bms_id}',
                             ha='center', va='center', color='black', fontsize=6, zorder=2)  # Text overlaid on the heatmap
 
     return heatmap  # Return heatmap for colorbar creation
 
-def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order, inlet_temp, outlet_temp, flow):
+def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list, strings_count, custom_sensor_order, inlet_temp, outlet_temp, flow):
     total_frames = data.shape[1]
     
     # Set up a 3 by 2 layout: 2 rows and 3 columns
@@ -305,7 +307,18 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
 
     def update(val):
         t_index = int(slider.val)
-        heatmap = plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, fig=fig)
+        heatmap = plot_battery_layout(
+            data,
+            sensor_identifiers,
+            sensors_per_module_list,
+            strings_count,
+            t_index,
+            total_frames,
+            axes,
+            cbar_list,
+            custom_sensor_order,
+            fig=fig
+        )
         
         # If it's the first time through, create a single colorbar for the whole figure
         if cbar_list[0] is None:
@@ -381,43 +394,63 @@ def main(db_path, lookup_table_path, file_id):
     else:
         lookup_table = pd.read_csv(lookup_table_path)
 
-    sensors_per_module = 2
-    strings_count = 6  # Updated to 6 layers
+    sensors_per_module_list = [2, 2, 2, 2, 2, 2]  # Adjust if necessary
+    strings_count = 6  # Total number of layers
 
-    temperatures, sensor_numbers = extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id)
+    temperatures, sensor_identifiers = extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id)
 
     inlet_temp, outlet_temp, flow = extract_inlet_outlet_flow(db_path, file_id, lookup_table)
 
-    # Custom sensor order (same as before)
+    # Custom sensor order (update with actual sensor numbers and BMS_IDs)
     custom_sensor_order = [
         # Layer 1
-        32, 31, 30, 29, 28, 27, 26, 25,
-        17, 18, 19, 20, 21, 22, 23, 24,
-        16, 15, 14, 13, 12, 11, 10, 9,
-        1, 2, 3, 4, 5, 6, 7, 8,
+        (32, '01'), (31, '01'), (30, '01'), (29, '01'), (28, '01'), (27, '01'), (26, '01'), (25, '01'),
+        (17, '01'), (18, '01'), (19, '01'), (20, '01'), (21, '01'), (22, '01'), (23, '01'), (24, '01'),
+        (16, '01'), (15, '01'), (14, '01'), (13, '01'), (12, '01'), (11, '01'), (10, '01'), (9, '01'),
+        (1, '01'), (2, '01'), (3, '01'), (4, '01'), (5, '01'), (6, '01'), (7, '01'), (8, '01'),
+
         # Layer 2
-        48, 47, 46, 45, 44, 43, 42, 41,
-        33, 34, 35, 36, 37, 38, 39, 40,
-        64, 63, 62, 61, 60, 59, 58, 57,
-        49, 50, 51, 52, 53, 54, 55, 56,
+        (48, '01'), (47, '01'), (46, '01'), (45, '01'), (44, '01'), (43, '01'), (42, '01'), (41, '01'),
+        (33, '01'), (34, '01'), (35, '01'), (36, '01'), (37, '01'), (38, '01'), (39, '01'), (40, '01'),
+        (64, '01'), (63, '01'), (62, '01'), (61, '01'), (60, '01'), (59, '01'), (58, '01'), (57, '01'),
+        (49, '01'), (50, '01'), (51, '01'), (52, '01'), (53, '01'), (54, '01'), (55, '01'), (56, '01'),
+
         # Layer 3
-        96, 95, 94, 93, 92, 91, 90, 89,
-        81, 82, 83, 84, 85, 86, 87, 88,
-        80, 79, 78, 77, 76, 75, 74, 73,
-        65, 66, 67, 68, 69, 70, 71, 72,
-        # Layer 4 (empty)
-        None, None, None, None, None, None, None, None,
-        None, None, None, None, None, None, None, None,
-        # Layer 5 (empty)
-        None, None, None, None, None, None, None, None,
-        None, None, None, None, None, None, None, None,
-        # Layer 6 (empty)
-        None, None, None, None, None, None, None, None,
-        None, None, None, None, None, None, None, None
+        (96, '01'), (95, '01'), (94, '01'), (93, '01'), (92, '01'), (91, '01'), (90, '01'), (89, '01'),
+        (81, '01'), (82, '01'), (83, '01'), (84, '01'), (85, '01'), (86, '01'), (87, '01'), (88, '01'),
+        (80, '01'), (79, '01'), (78, '01'), (77, '01'), (76, '01'), (75, '01'), (74, '01'), (73, '01'),
+        (65, '01'), (66, '01'), (67, '01'), (68, '01'), (69, '01'), (70, '01'), (71, '01'), (72, '01'),
+        
+        # Layer 4
+        (32, '05'), (31, '05'), (30, '05'), (29, '05'), (28, '05'), (27, '05'), (26, '05'), (25, '05'),
+        (17, '05'), (18, '05'), (19, '05'), (20, '05'), (21, '05'), (22, '05'), (23, '05'), (24, '05'),
+        (16, '05'), (15, '05'), (14, '05'), (13, '05'), (12, '05'), (11, '05'), (10, '05'), (9, '05'),
+        (1, '05'), (2, '05'), (3, '05'), (4, '05'), (5, '05'), (6, '05'), (7, '05'), (8, '05'),
+
+        # Layer 5
+        (48, '05'), (47, '05'), (46, '05'), (45, '05'), (44, '05'), (43, '05'), (42, '05'), (41, '05'),
+        (33, '05'), (34, '05'), (35, '05'), (36, '05'), (37, '05'), (38, '05'), (39, '05'), (40, '05'),
+        (64, '05'), (63, '05'), (62, '05'), (61, '05'), (60, '05'), (59, '05'), (58, '05'), (57, '05'),
+        (49, '05'), (50, '05'), (51, '05'), (52, '05'), (53, '05'), (54, '05'), (55, '05'), (56, '05'),
+
+        # Layer 6
+        (96, '05'), (95, '05'), (94, '05'), (93, '05'), (92, '05'), (91, '05'), (90, '05'), (89, '05'),
+        (81, '05'), (82, '05'), (83, '05'), (84, '05'), (85, '05'), (86, '05'), (87, '05'), (88, '05'),
+        (80, '05'), (79, '05'), (78, '05'), (77, '05'), (76, '05'), (75, '05'), (74, '05'), (73, '05'),
+        (65, '05'), (66, '05'), (67, '05'), (68, '05'), (69, '05'), (70, '05'), (71, '05'), (72, '05'),
     ]
 
     if len(temperatures) > 0:
-        interactive_battery_layout(temperatures, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order, inlet_temp, outlet_temp, flow)
+        interactive_battery_layout(
+            temperatures,
+            sensor_identifiers,
+            sensors_per_module_list,
+            strings_count,
+            custom_sensor_order,
+            inlet_temp,
+            outlet_temp,
+            flow
+        )
     else:
         print("No temperature data found.")
 
