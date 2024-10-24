@@ -155,11 +155,22 @@ def calculation_heat_flux(volumenstrom, temp_inlet, temp_outlet):
     return heat_flux
 
 
-def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=30, title="Battery Temperature Layout"):
+def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=40, title="Battery Temperature Layout", fig=None):
     # Load the background image
-    background_image_path = "/Users/gian/Documents/bat_temp_test/coolingplate_edited.png"
-    background_img = plt.imread(background_image_path)
+    background_image_path = "/Users/gian/Documents/GitHub/bat_temp_test/coolingplate_edited.png"
     
+    # Debugging step: Print the background image path
+    print(f"Loading background image from: {background_image_path}")
+    
+    try:
+        background_img = plt.imread(background_image_path)
+    except FileNotFoundError:
+        print(f"Error: Background image not found at {background_image_path}")
+        return
+
+    # Ensure that the image loaded
+    print("Background image loaded successfully")
+
     image_height, image_width = background_img.shape[:2]
     white_area_width = 486
     white_area_height = 212
@@ -169,9 +180,12 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
     y_end = y_start + white_area_height
     heatmap_extent = [x_start, x_end, y_start, y_end]
     
-    data_at_timestamp = data[:, t_index]  # Get data for the current timestamp
+    # Get the current data at the specific timestamp
+    data_at_timestamp = data[:, t_index]
+    
+    print(f"Data at timestamp {t_index}:", data_at_timestamp)
 
-    total_sensors_per_layer = 4 * sensors_per_module * 4  # Updated: 4 rows with 4 columns each
+    total_sensors_per_layer = 4 * sensors_per_module * 4  # 4 rows with 4 columns each
     reordered_layers = []
     reordered_sensor_numbers_layers = []
 
@@ -184,7 +198,6 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
         start_index = layer * total_sensors_per_layer
         end_index = start_index + total_sensors_per_layer
         
-        # Ensure we do not exceed the length of `custom_sensor_order`
         if end_index > len(custom_sensor_order):
             end_index = len(custom_sensor_order)
 
@@ -199,16 +212,12 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
                 if local_index < len(layer_sensor_indices):
                     sensor_order = layer_sensor_indices[local_index]
                     
-                    # Check if this sensor exists in our data and fill it in the grid
                     if sensor_order in sensor_numbers:
                         sensor_index = sensor_numbers.index(sensor_order)
                         reordered_data_layer[i, j] = data_at_timestamp[sensor_index]
                         reordered_sensor_numbers_layer[i, j] = sensor_order
                     else:
-                        # Mark the sensor number as missing
                         reordered_sensor_numbers_layer[i, j] = None
-                else:
-                    reordered_sensor_numbers_layer[i, j] = None
 
         reordered_layers.append(reordered_data_layer)
         reordered_sensor_numbers_layers.append(reordered_sensor_numbers_layer)
@@ -217,9 +226,12 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
     for string_index in range(strings_count):
         ax = axes[string_index]
         ax.clear()
+
+        # Display the background image
         ax.imshow(background_img, extent=[0, image_width, 0, image_height], aspect='auto', zorder=1)
 
-        heatmap = ax.imshow(reordered_layers[string_index], cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=1.0, zorder=2)
+        # Plot heatmap with transparency to ensure the background is visible
+        heatmap = ax.imshow(reordered_layers[string_index], cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=0.9, zorder=2)
 
         # Annotate sensor data
         cell_width = (x_end - x_start) / (4 * sensors_per_module)
@@ -236,18 +248,17 @@ def plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count,
                     ax.text(annotation_x, annotation_y, f'Sensor {sensor_number}\n{temp:.1f}°C',
                             ha='center', va='center', color='black', fontsize=8, zorder=3)
 
-        if cbar_list[string_index] is None:
-            cbar_list[string_index] = ax.figure.colorbar(heatmap, ax=ax)
-
-        ax.set_xlim(0, image_width)
-        ax.set_ylim(image_height, 0)
-        ax.set_title(f'{title} (Layer {string_index + 1}, Time Index: {t_index + 1} / {total_frames})')
-
-    plt.tight_layout(pad=3.0)
+    return heatmap  # Return heatmap for colorbar creation
 
 def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, custom_sensor_order, inlet_temp, outlet_temp, flow):
     total_frames = data.shape[1]
-    fig, axes = plt.subplots(strings_count, 1, figsize=(10, 5 * strings_count))
+    
+    # Set up a 3 by 2 layout: 2 rows and 3 columns
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))  # 2 rows and 3 columns
+    
+    # Flatten the axes for easier iteration (since axes is a 2D array now)
+    axes = axes.flatten()
+    
     cbar_list = [None] * strings_count
 
     ax_slider = plt.axes([0.25, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
@@ -266,8 +277,14 @@ def interactive_battery_layout(data, sensor_numbers, sensors_per_module, strings
 
     def update(val):
         t_index = int(slider.val)
-        plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order)
+        heatmap = plot_battery_layout(data, sensor_numbers, sensors_per_module, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, fig=fig)
         
+        # If it's the first time through, create a single colorbar for the whole figure
+        if cbar_list[0] is None:
+            cbar_ax = fig.add_axes([0.92, 0.3, 0.02, 0.4])  # Position for colorbar
+            fig.colorbar(heatmap, cax=cbar_ax)
+            cbar_list[0] = True  # Avoid re-creating the colorbar
+            
         # Check the current inlet, outlet temperature, and flow
         if len(inlet_temp) > t_index and inlet_temp[t_index] is not None:
             inlet_display = f"{inlet_temp[t_index]:.2f} °C"
@@ -332,29 +349,45 @@ def main(db_path, lookup_table_path, file_id):
     lookup_table = pd.read_csv(lookup_table_path)
 
     sensors_per_module = 2
-    strings_count = 3
+    strings_count = 6  # Updated to 6 layers
 
     temperatures, sensor_numbers = extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id)
 
     inlet_temp, outlet_temp, flow = extract_inlet_outlet_flow(db_path, file_id, lookup_table)
 
     # Custom sensor order (example, update with real physical layout)
+    # Layers 4, 5, and 6 are empty, filled with None values
     custom_sensor_order = [
         # Layer 1
         32, 31, 30, 29, 28, 27, 26, 25,
-        17, 18, 19, 20, 21, 22, 23, 24, 
+        17, 18, 19, 20, 21, 22, 23, 24,
         16, 15, 14, 13, 12, 11, 10, 9,
         1, 2, 3, 4, 5, 6, 7, 8,
         # Layer 2
-        48, 47, 46, 45, 44, 43, 42, 41, 
-        33, 34, 35, 36, 37, 38, 39, 40, 
-        64, 63, 62, 61, 60, 59, 58, 57, 
-        49, 50, 51, 52, 53, 54, 55, 56, 
+        48, 47, 46, 45, 44, 43, 42, 41,
+        33, 34, 35, 36, 37, 38, 39, 40,
+        64, 63, 62, 61, 60, 59, 58, 57,
+        49, 50, 51, 52, 53, 54, 55, 56,
         # Layer 3
-        96, 95, 94, 93, 92, 91, 90, 89, 
-        81, 82, 83, 84, 85, 86, 87, 88, 
-        80, 79, 78, 77, 76, 75, 74, 73, 
-        65, 66, 67, 68, 69, 70, 71, 72
+        96, 95, 94, 93, 92, 91, 90, 89,
+        81, 82, 83, 84, 85, 86, 87, 88,
+        80, 79, 78, 77, 76, 75, 74, 73,
+        65, 66, 67, 68, 69, 70, 71, 72,
+        # Layer 4 (empty)
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        # Layer 5 (empty)
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        # Layer 6 (empty)
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None
     ]
 
     if len(temperatures) > 0:
