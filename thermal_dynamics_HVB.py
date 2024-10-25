@@ -55,6 +55,7 @@ def cache_data(func):
     return wrapper
 
 @cache_data
+@cache_data
 def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value, cache_filename=None, force_refresh=False):
     start_time = time.time()
     # Use SQLAlchemy engine for better performance
@@ -86,10 +87,12 @@ def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value
 
             # Process each signal
             for idx, signal_name in enumerate(signal_names):
-                sensor_number = sensor_numbers[idx]
+                sensor_number = int(sensor_numbers[idx])  # Convert to integer
                 bms_id = bms_ids[idx]
                 sensor_identifier = (sensor_number, bms_id)
-                if sensor_identifier in processed_sensors or sensor_number in [102, 103]:
+                
+                # Exclude inlet (101), outlet (102), and flow (103) sensors
+                if sensor_identifier in processed_sensors or sensor_number in [101, 102, 103]:
                     continue
 
                 temperatures = df[signal_name].dropna().values
@@ -177,7 +180,6 @@ def extract_inlet_outlet_flow(db_path, file_id_value, lookup_table, cache_filena
     return inlet_temperature, outlet_temperature, coolant_flow
 
 def calculation_heat_flux(volumenstrom, temp_inlet, temp_outlet):
-    # ... [same as before]
     # Hardcoded parameters
     cw = 4186    # Specific heat capacity of water in J/(kg*K)
     cg = 3350    # Specific heat capacity of glycol in J/(kg*K)
@@ -227,9 +229,14 @@ def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strin
     # Get the current data at the specific timestamp
     data_at_timestamp = data[:, t_index]
     
+    mean_temperatures = []
+    max_temperatures = []
+    min_temperatures = []
+    temperature_ranges = []
+    std_devs = []
+
     reordered_layers = []
     reordered_sensor_numbers_layers = []
-    mean_temperatures = []  # List to store mean temperatures for each layer
 
     for layer in range(strings_count):
         sensors_per_module = sensors_per_module_list[layer]
@@ -263,9 +270,19 @@ def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strin
         reordered_layers.append(reordered_data_layer)
         reordered_sensor_numbers_layers.append(reordered_sensor_numbers_layer)
 
-        # Calculate the mean temperature for the layer (ignoring NaN values)
+        # Calculate layer-specific metrics
         mean_temperature = np.nanmean(reordered_data_layer)
+        max_temperature = np.nanmax(reordered_data_layer)
+        min_temperature = np.nanmin(reordered_data_layer)
+        temperature_range = max_temperature - min_temperature
+        std_dev = np.nanstd(reordered_data_layer)
+
+        # Store metrics
         mean_temperatures.append(mean_temperature)
+        max_temperatures.append(max_temperature)
+        min_temperatures.append(min_temperature)
+        temperature_ranges.append(temperature_range)
+        std_devs.append(std_dev)
 
     # Plot each layer of the battery and add a title for each
     for string_index in range(strings_count):
@@ -278,9 +295,14 @@ def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strin
         # Plot heatmap with some transparency so the background is visible
         heatmap = ax.imshow(reordered_layers[string_index], cmap='coolwarm', interpolation='nearest', vmin=vmin, vmax=vmax, extent=heatmap_extent, alpha=1, origin='lower', zorder=1)
 
-        # Add a title to each subplot to indicate the layer number and its mean temperature
+        # Add a title to each subplot to indicate the layer number and its metrics
         mean_temp = mean_temperatures[string_index]
-        ax.set_title(f'Layer {string_index + 1} | Mean Temp: {mean_temp:.2f}°C', fontsize=10, pad=10)
+        max_temp = max_temperatures[string_index]
+        min_temp = min_temperatures[string_index]
+        temp_range = temperature_ranges[string_index]
+        std_dev = std_devs[string_index]
+
+        ax.set_title(f'Layer {string_index + 1}\nMean: {mean_temp:.2f}°C | Max: {max_temp:.2f}°C | Min: {min_temp:.2f}°C\nRange: {temp_range:.2f}°C | Std Dev: {std_dev:.2f}°C', fontsize=10, pad=10)
 
         # Adjust axes limits and aspect ratio
         ax.set_xlim(0, image_width)
@@ -312,12 +334,18 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))  # 2 rows and 3 columns
     
     # Adjust the layout to make space above the subplots for metrics
-    plt.subplots_adjust(top=0.85, hspace=0.3, wspace=0.3)  # Adjust hspace and top to create space
+    plt.subplots_adjust(top=0.80, hspace=0.3, wspace=0.3)
+
+    fig.canvas.manager.set_window_title('HV Battery Temperature visualization')
     
     # Flatten the axes for easier iteration (since axes is a 2D array now)
     axes = axes.flatten()
     
     cbar_list = [None] * strings_count
+
+    # Initialize text object references
+    suptitle_text_obj = None
+    subtitle_text_middle_obj = None
 
     ax_slider = plt.axes([0.25, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
     slider = Slider(ax_slider, 'Time', 0, total_frames - 1, valinit=0, valstep=1)
@@ -334,6 +362,8 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
     playing = [False]
 
     def update(val):
+        nonlocal suptitle_text_obj, subtitle_text_middle_obj  # Access the variables from the enclosing scope
+
         t_index = int(slider.val)
         heatmap = plot_battery_layout(
             data,
@@ -345,26 +375,29 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
             axes,
             cbar_list,
             custom_sensor_order,
-            vmin=vmin,  # Pass vmin
-            vmax=vmax,  # Pass vmax
+            vmin=vmin,
+            vmax=vmax,
             fig=fig
         )
 
-        # If it's the first time through, create a single colorbar for the whole figure
-        if cbar_list[0] is None:
-            cbar_ax = fig.add_axes([0.92, 0.3, 0.02, 0.4])  # Position for colorbar
-            fig.colorbar(heatmap, cax=cbar_ax)
-            cbar_list[0] = True  # Avoid re-creating the colorbar
-
-        # Calculate the mean temperature for each battery module layer
+        # Calculate overall metrics
+        overall_mean_temp = np.nanmean(data[:, t_index])
+        overall_max_temp = np.nanmax(data[:, t_index])
+        overall_min_temp = np.nanmin(data[:, t_index])
+        overall_temp_range = overall_max_temp - overall_min_temp
+        overall_std_dev = np.nanstd(data[:, t_index])
+        print("data array\n", data[:, t_index])
+        print("inlet_temp\t",inlet_temp[t_index])
+        print("inlet_temp\t",outlet_temp[t_index])
+        # Calculate the mean temperature for each layer
         layer_means = []
         for layer in range(strings_count):
-            layer_data = data[layer * sensors_per_module_list[layer] * 4 : (layer + 1) * sensors_per_module_list[layer] * 4, t_index]
-            mean_temp = np.nanmean(layer_data)  # Mean temperature of the current layer
+            start_idx = sum([sensors_per_module_list[i] * 4 * 4 for i in range(layer)])
+            end_idx = start_idx + sensors_per_module_list[layer] * 4 * 4
+            layer_data = data[start_idx:end_idx, t_index]
+            mean_temp = np.nanmean(layer_data)
             layer_means.append(mean_temp)
-
-        overall_mean_temp = np.nanmean(layer_means)  # Overall mean temperature across all layers
-        max_mean_temp_deviation = np.nanmax([abs(mean_temp - overall_mean_temp) for mean_temp in layer_means])  # Maximum deviation
+        max_mean_temp_deviation = np.nanmax([abs(mean_temp - overall_mean_temp) for mean_temp in layer_means])
 
         # Update inlet, outlet, and flow display
         if len(inlet_temp) > t_index and inlet_temp[t_index] is not None:
@@ -392,9 +425,36 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
         else:
             heat_flow_display = "Q_HVB: N/A"
 
-        # Update the figure title to include heat flow and max deviation from mean layer temperature
-        fig.suptitle(f"Inlet Temp: {inlet_display} | Outlet Temp: {outlet_display} | Coolant Flow: {flow_display} | {heat_flow_display} | Max Deviation from Mean Layer Temp: {max_mean_temp_deviation:.2f}°C", fontsize=14, fontweight='bold')
+        # Rearranged and updated figure title with new metrics (left-aligned)
+        suptitle_text = (
+            f"Module Mean Temp: {overall_mean_temp:.2f}°C \n"
+            f"Module Max Temp: {overall_max_temp:.2f}°C \nModule Min Temp: {overall_min_temp:.2f}°C \nRange: {overall_temp_range:.2f}°C \nStd Dev: {overall_std_dev:.2f}°C\n"
+        )
+
+        # Update or create the first text object
+        if suptitle_text_obj is None:
+            suptitle_text_obj = fig.text(0.03, 0.85, suptitle_text, fontsize=12, fontweight='bold', ha='left')
+        else:
+            suptitle_text_obj.set_text(suptitle_text)
+
+        # Center the second block of text lower on the figure (adjust 'y' for more separation)
+        subtitle_text_middle = (
+            f"Inlet Temp: {inlet_display} \nOutlet Temp: {outlet_display} \nCoolant Flow: {flow_display} \n{heat_flow_display}"
+        )
+
+        # Update or create the second text object
+        if subtitle_text_middle_obj is None:
+            subtitle_text_middle_obj = fig.text(0.5, 0.88, subtitle_text_middle, fontsize=12, fontweight='bold', ha='center')
+        else:
+            subtitle_text_middle_obj.set_text(subtitle_text_middle)
+
         fig.canvas.draw_idle()
+
+        # If it's the first time through, create a single colorbar for the whole figure
+        if cbar_list[0] is None:
+            cbar_ax = fig.add_axes([0.92, 0.3, 0.02, 0.4])  # Position for colorbar
+            fig.colorbar(heatmap, cax=cbar_ax)
+            cbar_list[0] = True  # Avoid re-creating the colorbar
 
     slider.on_changed(update)
 
@@ -445,7 +505,8 @@ def main(db_path, lookup_table_path, file_id, vmin, vmax):
         db_path,
         lookup_table,
         file_id,
-        cache_filename=temp_cache_filename
+        cache_filename=temp_cache_filename,
+        force_refresh=False  # Force refresh to update cache
     )
 
     # Extract inlet, outlet temperatures and coolant flow, using caching
@@ -453,7 +514,8 @@ def main(db_path, lookup_table_path, file_id, vmin, vmax):
         db_path,
         file_id,
         lookup_table,
-        cache_filename=flow_cache_filename
+        cache_filename=flow_cache_filename,
+        force_refresh=False  # Force refresh to update cache
     )
 
     # Custom sensor order (update with actual sensor numbers and BMS_IDs)
