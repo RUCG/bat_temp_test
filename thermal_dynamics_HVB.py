@@ -350,14 +350,15 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
     ax_slider = plt.axes([0.25, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
     slider = Slider(ax_slider, 'Time', 0, total_frames - 1, valinit=0, valstep=1)
 
-    ax_button_play = plt.axes([0.8, 0.02, 0.1, 0.04])
+    
+    ax_button_play = plt.axes([0.92, 0.15, 0.07, 0.04])
     button_play = Button(ax_button_play, 'Play/Pause')
 
-    ax_button_ff = plt.axes([0.1, 0.02, 0.1, 0.04])
-    button_ff = Button(ax_button_ff, 'Fast Forward')
-
-    ax_button_rw = plt.axes([0.01, 0.02, 0.1, 0.04])
+    ax_button_rw = plt.axes([0.92, 0.10, 0.07, 0.04])
     button_rw = Button(ax_button_rw, 'Rewind')
+
+    ax_button_ff = plt.axes([0.92, 0.05, 0.07, 0.04])
+    button_ff = Button(ax_button_ff, 'Fast Forward')
 
     playing = [False]
 
@@ -428,7 +429,7 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
         # Rearranged and updated figure title with new metrics (left-aligned)
         suptitle_text = (
             f"Module Mean Temp: {overall_mean_temp:.2f}°C \n"
-            f"Module Max Temp: {overall_max_temp:.2f}°C \nModule Min Temp: {overall_min_temp:.2f}°C \nRange: {overall_temp_range:.2f}°C \nStd Dev: {overall_std_dev:.2f}°C\n"
+            f"Module Max Temp: {overall_max_temp:.2f}°C \nModule Min Temp: {overall_min_temp:.2f}°C \nCell Range: {overall_temp_range:.2f}°C \nStd Dev: {overall_std_dev:.2f}°C\n"
         )
 
         # Update or create the first text object
