@@ -3,6 +3,5 @@ matplotlib     # Plotting library
 numpy                  # Numerical calculations
 tqdm                   # Progress bar library
 asammdf                # Library for handling MDF files
-pyarrow                # Library for handling Parquet files
-tkinter                # GUI library
+pyarrow>=18.0.0       # Library for handling Parquet files
 sqlalchemy             # Library for handling SQL databases

@@ -327,43 +327,90 @@ def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strin
 
     return heatmap  # Return heatmap for colorbar creation
 
-def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list, strings_count, custom_sensor_order, inlet_temp, outlet_temp, flow, vmin, vmax):
+def interactive_battery_layout(
+    data, sensor_identifiers, sensors_per_module_list, strings_count,
+    custom_sensor_order, inlet_temp, outlet_temp, flow, vmin, vmax
+):
     total_frames = data.shape[1]
-    
-    # Set up a 3 by 2 layout: 2 rows and 3 columns
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))  # 2 rows and 3 columns
-    
-    # Adjust the layout to make space above the subplots for metrics
-    plt.subplots_adjust(top=0.80, hspace=0.3, wspace=0.3)
 
-    fig.canvas.manager.set_window_title('HV Battery Temperature visualization')
-    
-    # Flatten the axes for easier iteration (since axes is a 2D array now)
-    axes = axes.flatten()
-    
+    import matplotlib.gridspec as gridspec
+
+    # Create a figure with a specified size
+    fig = plt.figure(figsize=(15, 10))
+
+    # Define a GridSpec with 3 rows and 3 columns
+    # Adjust 'height_ratios' to control the height of each row
+    gs = gridspec.GridSpec(3, 3, height_ratios=[1, 1, 0.5])  # Last row is shorter
+
+    # Create a list to hold the axes for the battery layers
+    axes = []
+    for i in range(2):  # Two rows
+        for j in range(3):  # Three columns
+            ax = fig.add_subplot(gs[i, j])
+            axes.append(ax)
+
+    # The bottom row (gs[2, :]) spans all three columns and is reserved for the additional graph
+    ax_additional = fig.add_subplot(gs[2, :])
+
+    # Adjust layout to prevent overlapping
+    plt.subplots_adjust(hspace=0.01, wspace=0.3, top=0.80)  # Decrease 'top' to 0.80
+
     cbar_list = [None] * strings_count
 
     # Initialize text object references
     suptitle_text_obj = None
     subtitle_text_middle_obj = None
 
-    ax_slider = plt.axes([0.25, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
+    ax_slider = plt.axes([0.20, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
     slider = Slider(ax_slider, 'Time', 0, total_frames - 1, valinit=0, valstep=1)
 
-    
-    ax_button_play = plt.axes([0.92, 0.15, 0.07, 0.04])
+    ax_button_play = plt.axes([0.05, 0.02, 0.1, 0.04])
     button_play = Button(ax_button_play, 'Play/Pause')
 
-    ax_button_rw = plt.axes([0.92, 0.10, 0.07, 0.04])
+    ax_button_rw = plt.axes([0.78, 0.02, 0.1, 0.04])
     button_rw = Button(ax_button_rw, 'Rewind')
 
-    ax_button_ff = plt.axes([0.92, 0.05, 0.07, 0.04])
+    ax_button_ff = plt.axes([0.89, 0.02, 0.1, 0.04])
     button_ff = Button(ax_button_ff, 'Fast Forward')
 
     playing = [False]
 
+    # Prepare time axis (adjust if you have actual time data)
+    time = np.arange(total_frames)
+
+    # Compute overall temperature ranges over time
+    overall_max_temps = np.nanmax(data, axis=0)
+    overall_min_temps = np.nanmin(data, axis=0)
+    overall_temp_range_over_time = overall_max_temps - overall_min_temps
+
+    # Compute layer temperature ranges over time
+    layer_temp_ranges = np.zeros((strings_count, total_frames))
+    for layer in range(strings_count):
+        start_idx = sum([sensors_per_module_list[i] * 4 * 4 for i in range(layer)])
+        end_idx = start_idx + sensors_per_module_list[layer] * 4 * 4
+        layer_data = data[start_idx:end_idx, :]
+        layer_max_temps = np.nanmax(layer_data, axis=0)
+        layer_min_temps = np.nanmin(layer_data, axis=0)
+        layer_temp_ranges[layer, :] = layer_max_temps - layer_min_temps
+
+    # Initialize plots in 'ax_additional'
+    line_overall, = ax_additional.plot([], [], label='Overall Cell Temp Range', color='black')
+    lines_layers = []
+    colors = plt.cm.viridis(np.linspace(0, 1, strings_count))
+
+    for layer in range(strings_count):
+        line_layer, = ax_additional.plot([], [], label=f'Layer {layer + 1} Temp Range', color=colors[layer])
+        lines_layers.append(line_layer)
+
+    ax_additional.set_xlabel('Time')
+    ax_additional.set_ylabel('Temperature Range (°C)')
+    ax_additional.set_title('Cell and Layer Temperature Ranges Over Time')
+    ax_additional.legend(loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0)
+    ax_additional.set_xlim(time[0], time[-1])
+    ax_additional.set_ylim(0, np.nanmax(overall_temp_range_over_time) * 1.1)
+
     def update(val):
-        nonlocal suptitle_text_obj, subtitle_text_middle_obj  # Access the variables from the enclosing scope
+        nonlocal suptitle_text_obj, subtitle_text_middle_obj
 
         t_index = int(slider.val)
         heatmap = plot_battery_layout(
@@ -387,9 +434,7 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
         overall_min_temp = np.nanmin(data[:, t_index])
         overall_temp_range = overall_max_temp - overall_min_temp
         overall_std_dev = np.nanstd(data[:, t_index])
-        print("data array\n", data[:, t_index])
-        print("inlet_temp\t",inlet_temp[t_index])
-        print("inlet_temp\t",outlet_temp[t_index])
+
         # Calculate the mean temperature for each layer
         layer_means = []
         for layer in range(strings_count):
@@ -398,7 +443,6 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
             layer_data = data[start_idx:end_idx, t_index]
             mean_temp = np.nanmean(layer_data)
             layer_means.append(mean_temp)
-        max_mean_temp_deviation = np.nanmax([abs(mean_temp - overall_mean_temp) for mean_temp in layer_means])
 
         # Update inlet, outlet, and flow display
         if len(inlet_temp) > t_index and inlet_temp[t_index] is not None:
@@ -429,33 +473,43 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
         # Rearranged and updated figure title with new metrics (left-aligned)
         suptitle_text = (
             f"Module Mean Temp: {overall_mean_temp:.2f}°C \n"
-            f"Module Max Temp: {overall_max_temp:.2f}°C \nModule Min Temp: {overall_min_temp:.2f}°C \nCell Range: {overall_temp_range:.2f}°C \nStd Dev: {overall_std_dev:.2f}°C\n"
+            f"Module Max Temp: {overall_max_temp:.2f}°C \nModule Min Temp: {overall_min_temp:.2f}°C \n"
+            f"Cell Range: {overall_temp_range:.2f}°C \nStd Dev: {overall_std_dev:.2f}°C\n"
         )
 
         # Update or create the first text object
         if suptitle_text_obj is None:
-            suptitle_text_obj = fig.text(0.03, 0.85, suptitle_text, fontsize=12, fontweight='bold', ha='left')
+            suptitle_text_obj = fig.text(0.03, 0.86, suptitle_text, fontsize=12, fontweight='bold', ha='left')
         else:
             suptitle_text_obj.set_text(suptitle_text)
 
-        # Center the second block of text lower on the figure (adjust 'y' for more separation)
+        # Center the second block of text lower on the figure
         subtitle_text_middle = (
             f"Inlet Temp: {inlet_display} \nOutlet Temp: {outlet_display} \nCoolant Flow: {flow_display} \n{heat_flow_display}"
         )
 
         # Update or create the second text object
         if subtitle_text_middle_obj is None:
-            subtitle_text_middle_obj = fig.text(0.5, 0.88, subtitle_text_middle, fontsize=12, fontweight='bold', ha='center')
+            subtitle_text_middle_obj = fig.text(0.5, 0.91, subtitle_text_middle, fontsize=12, fontweight='bold', ha='center')
         else:
             subtitle_text_middle_obj.set_text(subtitle_text_middle)
+
+        # Update 'ax_additional' plots
+        line_overall.set_data(time[:t_index + 1], overall_temp_range_over_time[:t_index + 1])
+        for layer in range(strings_count):
+            lines_layers[layer].set_data(time[:t_index + 1], layer_temp_ranges[layer, :t_index + 1])
+
+        # Adjust axes limits if necessary
+        ax_additional.set_xlim(time[0], time[-1])
+        ax_additional.set_ylim(0, np.nanmax(overall_temp_range_over_time) * 1.1)
 
         fig.canvas.draw_idle()
 
         # If it's the first time through, create a single colorbar for the whole figure
         if cbar_list[0] is None:
-            cbar_ax = fig.add_axes([0.92, 0.3, 0.02, 0.4])  # Position for colorbar
+            cbar_ax = fig.add_axes([0.92, 0.3, 0.02, 0.4])
             fig.colorbar(heatmap, cax=cbar_ax)
-            cbar_list[0] = True  # Avoid re-creating the colorbar
+            cbar_list[0] = True
 
     slider.on_changed(update)
 
@@ -480,7 +534,10 @@ def interactive_battery_layout(data, sensor_identifiers, sensors_per_module_list
 
     def animate(i):
         if playing[0]:
-            slider.set_val((slider.val + 1) % total_frames)
+            if slider.val < total_frames - 1:
+                slider.set_val(slider.val + 1)
+            else:
+                slider.set_val(0)  # Reset to start or stop the animation
 
     ani = FuncAnimation(fig, animate, interval=200)
 
@@ -538,7 +595,6 @@ def main(db_path, lookup_table_path, file_id, vmin, vmax):
         (80, '01'), (79, '01'), (78, '01'), (77, '01'), (76, '01'), (75, '01'), (74, '01'), (73, '01'),
         (81, '01'), (82, '01'), (83, '01'), (84, '01'), (85, '01'), (86, '01'), (87, '01'), (88, '01'),
         (96, '01'), (95, '01'), (94, '01'), (93, '01'), (92, '01'), (91, '01'), (90, '01'), (89, '01'),
-        
         
         
         

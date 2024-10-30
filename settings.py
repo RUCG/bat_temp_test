@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog
+from tkinter import ttk
 import pandas as pd
 import json
 
@@ -21,7 +22,7 @@ def save_to_json(data, json_filename="config.json"):
     print(f"Configuration saved to {json_filename}")
 
 def update_variables():
-    # Get values from the Tkinter entries
+    # Get values from the tkinter entries
     config_data = {
         "db_path": db_path_entry.get(),
         "lookup_table_path": lookup_table_entry.get(),
@@ -37,7 +38,7 @@ def update_variables():
     print("Updated variables saved to config.json:")
     print(config_data)
 
-    # Close the Tkinter window
+    # Close the tkinter window
     root.quit()
 
 def browse_file(entry_field):
@@ -53,7 +54,7 @@ file_id = "TCP0014_Run17_01.MF4"
 vmin = 15
 vmax = 40
 
-# Tkinter setup
+# tkinter setup
 root = tk.Tk()
 root.title("Heatmap Configuration")
 
@@ -107,6 +108,9 @@ vmax_entry.insert(0, str(vmax))
 update_button = tk.Button(root, text="Save to JSON", command=update_variables)
 update_button.grid(row=5, column=1, pady=10)
 
-root.mainloop()
+try:
+    root.mainloop()
+except Exception as e:
+    print(f"Error encountered: {e}")
 
-# After the Tkinter window is closed, the variables will be updated and saved to a JSON file.
+# After the tkinter window is closed, the variables will be updated and saved to a JSON file.
