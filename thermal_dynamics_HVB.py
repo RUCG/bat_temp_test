@@ -55,7 +55,6 @@ def cache_data(func):
     return wrapper
 
 @cache_data
-@cache_data
 def extract_temperatures_and_sensor_numbers(db_path, lookup_table, file_id_value, cache_filename=None, force_refresh=False):
     start_time = time.time()
     # Use SQLAlchemy engine for better performance
@@ -356,7 +355,7 @@ def interactive_battery_layout(
     fig = plt.figure(figsize=(15, 10))
 
     # Add the file name to the top right corner
-    fig.text(0.95, 0.95, f"Source File: {file_id}", ha='right', va='top', fontsize=10, color='gray')
+    fig.text(0.95, 0.9, f"Source File: {file_id}", ha='right', va='top', fontsize=10, color='gray')
 
     # Define a GridSpec with 3 rows and 3 columns
     # Adjust 'height_ratios' to control the height of each row
@@ -398,36 +397,34 @@ def interactive_battery_layout(
     # Prepare time axis (adjust if you have actual time data)
     time = np.arange(total_frames)
 
-    # Compute overall temperature ranges over time
+    # Compute overall cell temperature ranges over time
     overall_max_temps = np.nanmax(data, axis=0)
     overall_min_temps = np.nanmin(data, axis=0)
     overall_temp_range_over_time = overall_max_temps - overall_min_temps
 
-    # Compute layer temperature ranges over time
-    layer_temp_ranges = np.zeros((strings_count, total_frames))
+    # Compute mean layer temperatures over time
+    layer_mean_temps = np.zeros((strings_count, total_frames))
     for layer in range(strings_count):
         start_idx = sum([sensors_per_module_list[i] * 4 * 4 for i in range(layer)])
         end_idx = start_idx + sensors_per_module_list[layer] * 4 * 4
         layer_data = data[start_idx:end_idx, :]
-        layer_max_temps = np.nanmax(layer_data, axis=0)
-        layer_min_temps = np.nanmin(layer_data, axis=0)
-        layer_temp_ranges[layer, :] = layer_max_temps - layer_min_temps
+        layer_mean_temps[layer, :] = np.nanmean(layer_data, axis=0)
+
+    # Compute the range of mean layer temperatures over time
+    max_mean_layer_temps = np.nanmax(layer_mean_temps, axis=0)
+    min_mean_layer_temps = np.nanmin(layer_mean_temps, axis=0)
+    range_mean_layer_temps = max_mean_layer_temps - min_mean_layer_temps
 
     # Initialize plots in 'ax_additional'
-    line_overall, = ax_additional.plot([], [], label='Overall Cell Temp Range', color='black')
-    lines_layers = []
-    colors = plt.cm.viridis(np.linspace(0, 1, strings_count))
-
-    for layer in range(strings_count):
-        line_layer, = ax_additional.plot([], [], label=f'Layer {layer + 1} Temp Range', color=colors[layer])
-        lines_layers.append(line_layer)
+    line_overall, = ax_additional.plot([], [], label='Cell Temp \nRange', color='black')
+    line_layer_mean_range, = ax_additional.plot([], [], label='Range of Mean \nLayer Temps', color='red')
 
     ax_additional.set_xlabel('Time [s]')
     ax_additional.set_ylabel('Temperature Range [°C]')
-    ax_additional.set_title('Cell and Layer Temperature Ranges Over Time')
+    ax_additional.set_title('Cell Temp Range and Range of Mean Layer Temps Over Time')
     ax_additional.legend(loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0)
     ax_additional.set_xlim(time[0], time[-1])
-    ax_additional.set_ylim(0, np.nanmax(overall_temp_range_over_time) * 1.1)
+    ax_additional.set_ylim(0, max(np.nanmax(overall_temp_range_over_time), np.nanmax(range_mean_layer_temps)) * 1.1)
 
     def update(val):
         nonlocal suptitle_text_obj, subtitle_text_middle_obj
@@ -455,15 +452,6 @@ def interactive_battery_layout(
         overall_temp_range = overall_max_temp - overall_min_temp
         overall_std_dev = np.nanstd(data[:, t_index])
 
-        # Calculate the mean temperature for each layer
-        layer_means = []
-        for layer in range(strings_count):
-            start_idx = sum([sensors_per_module_list[i] * 4 * 4 for i in range(layer)])
-            end_idx = start_idx + sensors_per_module_list[layer] * 4 * 4
-            layer_data = data[start_idx:end_idx, t_index]
-            mean_temp = np.nanmean(layer_data)
-            layer_means.append(mean_temp)
-
         # Update inlet, outlet, and flow display
         if len(inlet_temp) > t_index and inlet_temp[t_index] is not None:
             inlet_display = f"{inlet_temp[t_index]:.2f} °C"
@@ -490,16 +478,25 @@ def interactive_battery_layout(
         else:
             heat_flow_display = "Q_HVB: N/A"
 
+        # Update 'ax_additional' plots
+        line_overall.set_data(time[:t_index + 1], overall_temp_range_over_time[:t_index + 1])
+        line_layer_mean_range.set_data(time[:t_index + 1], range_mean_layer_temps[:t_index + 1])
+
+        # Adjust axes limits if necessary
+        ax_additional.set_xlim(time[0], time[-1])
+        ax_additional.set_ylim(0, max(np.nanmax(overall_temp_range_over_time), np.nanmax(range_mean_layer_temps)) * 1.1)
+
         # Rearranged and updated figure title with new metrics (left-aligned)
         suptitle_text = (
             f"Module Mean Temp: {overall_mean_temp:.2f}°C \n"
-            f"Module Max Temp: {overall_max_temp:.2f}°C \nModule Min Temp: {overall_min_temp:.2f}°C \n"
-            f"Cell Range: {overall_temp_range:.2f}°C \nStd Dev: {overall_std_dev:.2f}°C\n"
+            f"Module Max Temp: {overall_max_temp:.2f}°C\nModule Min Temp: {overall_min_temp:.2f}°C \n"
+            f"Cell Range: {overall_temp_range:.2f}°C\nLayer Range: {range_mean_layer_temps[t_index]:.2f}°C\n"
+            f"Std Dev: {overall_std_dev:.2f}°C\n"
         )
 
         # Update or create the first text object
         if suptitle_text_obj is None:
-            suptitle_text_obj = fig.text(0.03, 0.86, suptitle_text, fontsize=12, fontweight='bold', ha='left')
+            suptitle_text_obj = fig.text(0.03, 0.80, suptitle_text, fontsize=12, fontweight='bold', ha='left')
         else:
             suptitle_text_obj.set_text(suptitle_text)
 
@@ -510,25 +507,17 @@ def interactive_battery_layout(
 
         # Update or create the second text object
         if subtitle_text_middle_obj is None:
-            subtitle_text_middle_obj = fig.text(0.5, 0.91, subtitle_text_middle, fontsize=12, fontweight='bold', ha='center')
+            subtitle_text_middle_obj = fig.text(0.5, 0.86, subtitle_text_middle, fontsize=12, fontweight='bold', ha='center')
         else:
             subtitle_text_middle_obj.set_text(subtitle_text_middle)
 
-        # Update 'ax_additional' plots
-        line_overall.set_data(time[:t_index + 1], overall_temp_range_over_time[:t_index + 1])
-        for layer in range(strings_count):
-            lines_layers[layer].set_data(time[:t_index + 1], layer_temp_ranges[layer, :t_index + 1])
 
-        # Adjust axes limits if necessary
-        ax_additional.set_xlim(time[0], time[-1])
-        ax_additional.set_ylim(0, np.nanmax(overall_temp_range_over_time) * 1.1)
 
         fig.canvas.draw_idle()
 
-        
         # If it's the first time through, create a single colorbar for the whole figure
         if cbar_list[0] is None:
-            cbar_ax = fig.add_axes([0.92, 0.3, 0.02, 0.4])
+            cbar_ax = fig.add_axes([0.92, 0.33, 0.02, 0.4])
             colorbar = fig.colorbar(heatmap, cax=cbar_ax)
             colorbar.set_label("Temperature [°C]", fontsize=12)  # Add label to colorbar
             cbar_list[0] = True
@@ -567,6 +556,7 @@ def interactive_battery_layout(
     plt.show()
 
 def main(db_path, lookup_table_path, file_id, vmin, vmax):
+    
     # Load the lookup table from Parquet or CSV
     if lookup_table_path.endswith('.parquet'):
         lookup_table = pd.read_parquet(lookup_table_path)
