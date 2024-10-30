@@ -355,6 +355,9 @@ def interactive_battery_layout(
     # Create a figure with a specified size
     fig = plt.figure(figsize=(15, 10))
 
+    # Add the file name to the top right corner
+    fig.text(0.95, 0.95, f"Source File: {file_id}", ha='right', va='top', fontsize=10, color='gray')
+
     # Define a GridSpec with 3 rows and 3 columns
     # Adjust 'height_ratios' to control the height of each row
     gs = gridspec.GridSpec(3, 3, height_ratios=[1, 1, 0.5])  # Last row is shorter
@@ -522,10 +525,12 @@ def interactive_battery_layout(
 
         fig.canvas.draw_idle()
 
+        
         # If it's the first time through, create a single colorbar for the whole figure
         if cbar_list[0] is None:
             cbar_ax = fig.add_axes([0.92, 0.3, 0.02, 0.4])
-            fig.colorbar(heatmap, cax=cbar_ax)
+            colorbar = fig.colorbar(heatmap, cax=cbar_ax)
+            colorbar.set_label("Temperature [°C]", fontsize=12)  # Add label to colorbar
             cbar_list[0] = True
 
     slider.on_changed(update)
