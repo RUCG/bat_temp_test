@@ -1,7 +1,7 @@
 {
     "db_path": "mf4_data.db",
     "lookup_table_path": "db_lookup_table.parquet",
-    "file_id": "'TCP0014_Run1_01.MF4'",
+    "file_id": "'TCP0014_Run9_01.MF4'",
     "vmin": 15.0,
     "vmax": 40.0
 }

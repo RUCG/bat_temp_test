@@ -304,6 +304,10 @@ def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strin
 
         ax.set_title(f'Layer {string_index + 1}\nMean: {mean_temp:.2f}°C | Max: {max_temp:.2f}°C | Min: {min_temp:.2f}°C\nRange: {temp_range:.2f}°C | Std Dev: {std_dev:.2f}°C', fontsize=10, pad=10)
 
+        # Remove axis ticks and labels
+        ax.set_xticks([])
+        ax.set_yticks([])
+
         # Adjust axes limits and aspect ratio
         ax.set_xlim(0, image_width)
         ax.set_ylim(0, image_height)
@@ -331,7 +335,20 @@ def interactive_battery_layout(
     data, sensor_identifiers, sensors_per_module_list, strings_count,
     custom_sensor_order, inlet_temp, outlet_temp, flow, vmin, vmax
 ):
-    total_frames = data.shape[1]
+    # Determine the minimum length among all data arrays
+    data_length = data.shape[1]
+    inlet_length = len(inlet_temp)
+    outlet_length = len(outlet_temp)
+    flow_length = len(flow)
+    min_length = min(data_length, inlet_length, outlet_length, flow_length)
+    
+    # Trim data arrays to the minimum length
+    data = data[:, :min_length]
+    inlet_temp = inlet_temp[:min_length]
+    outlet_temp = outlet_temp[:min_length]
+    flow = flow[:min_length]
+    
+    total_frames = min_length
 
     import matplotlib.gridspec as gridspec
 
@@ -362,7 +379,7 @@ def interactive_battery_layout(
     subtitle_text_middle_obj = None
 
     ax_slider = plt.axes([0.20, 0.02, 0.50, 0.04], facecolor='lightgoldenrodyellow')
-    slider = Slider(ax_slider, 'Time', 0, total_frames - 1, valinit=0, valstep=1)
+    slider = Slider(ax_slider, 'Time [s]', 0, total_frames - 1, valinit=0, valstep=1)
 
     ax_button_play = plt.axes([0.05, 0.02, 0.1, 0.04])
     button_play = Button(ax_button_play, 'Play/Pause')
@@ -402,8 +419,8 @@ def interactive_battery_layout(
         line_layer, = ax_additional.plot([], [], label=f'Layer {layer + 1} Temp Range', color=colors[layer])
         lines_layers.append(line_layer)
 
-    ax_additional.set_xlabel('Time')
-    ax_additional.set_ylabel('Temperature Range (°C)')
+    ax_additional.set_xlabel('Time [s]')
+    ax_additional.set_ylabel('Temperature Range [°C]')
     ax_additional.set_title('Cell and Layer Temperature Ranges Over Time')
     ax_additional.legend(loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0)
     ax_additional.set_xlim(time[0], time[-1])
