@@ -25,10 +25,19 @@ def load_config(json_filename="config.json"):
         print(f"Error: Could not parse {json_filename}.")
         return None
 
+# Ensure the data directory exists
+os.makedirs("data", exist_ok=True)
+
 def cache_data(func):
     """Decorator to cache data returned by a function."""
     def wrapper(*args, **kwargs):
+        # Modify the cache filename to store files in the 'data' folder
         cache_filename = kwargs.get('cache_filename')
+        if cache_filename:
+            # Ensure the filename includes the 'data' folder
+            cache_filename = os.path.join("data", os.path.basename(cache_filename))
+            kwargs['cache_filename'] = cache_filename
+
         force_refresh = kwargs.get('force_refresh', False)
         
         # Extract db_path from args or kwargs
@@ -567,8 +576,8 @@ def main(db_path, lookup_table_path, file_id, vmin, vmax):
     strings_count = 6  # Total number of layers
 
     # Define cache filenames
-    temp_cache_filename = f"temp_data_{file_id}.pkl"
-    flow_cache_filename = f"flow_data_{file_id}.pkl"
+    temp_cache_filename = os.path.join("data", f"temp_data_{file_id}.pkl")
+    flow_cache_filename = os.path.join("data", f"flow_data_{file_id}.pkl")
 
     # Extract temperatures and sensor identifiers, using caching
     temperatures, sensor_identifiers = extract_temperatures_and_sensor_numbers(

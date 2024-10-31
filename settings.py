@@ -11,8 +11,8 @@ def load_file_ids(lookup_table_path):
     else:
         lookup_table = pd.read_csv(lookup_table_path)
 
-    # Get unique file IDs
-    file_ids = lookup_table['File.ID'].unique()
+    # Get unique file IDs and convert to a clean list of strings
+    file_ids = [str(file_id).strip("[]'\"") for file_id in lookup_table['File.ID'].unique()]
     return file_ids
 
 def save_to_json(data, json_filename="config.json"):
