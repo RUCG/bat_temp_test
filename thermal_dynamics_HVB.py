@@ -210,8 +210,9 @@ def calculation_heat_flux(volumenstrom, temp_inlet, temp_outlet):
 
 def plot_battery_layout(data, sensor_identifiers, sensors_per_module_list, strings_count, t_index, total_frames, axes, cbar_list, custom_sensor_order, vmin=15, vmax=40, title="Battery Temperature Layout", fig=None):
     # Load the background image
-    background_image_path = "/Users/gian/Documents/GitHub/bat_temp_test/coolingplate_edited.png"
-    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    background_image_path = os.path.join(current_dir, "coolingplate_edited.png")
+      
     try:
         background_img = plt.imread(background_image_path)
         print(f"Background image loaded successfully from: {background_image_path}")
