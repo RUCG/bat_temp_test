@@ -54,6 +54,7 @@ Python is the programming language used to run the tool.
    - Type `python --version` and press **Enter**.
    - You should see a response like `Python 3.10.x`.
 
+
 ### 2. Install Required Python Packages
 
 The tool uses several Python libraries that need to be installed.
@@ -61,12 +62,37 @@ The tool uses several Python libraries that need to be installed.
 1. **Open the Command Prompt:**
    - Press `Win + R`, type `cmd`, and press **Enter**.
 
-2. **Install Packages Using pip:**
-   - Type the following command and press **Enter**:
-     ```bash
-     pip install pandas matplotlib numpy sqlalchemy
-     ```
+2. **head to the unziped folder:**
+    - type `dir` to see all directorys
+    - type `cd` to move into a folder
+        - eg: `cd downloads\bat_temp_test-main` to enter the project folder in downloads
+    - type `cd..` to go back one level
+
+3. **Install Packages Using pip:**
+    - type `pip install -r requirements.txt`
+
    - Wait for the installation to complete.
+
+
+## Select Your Data from the settings programm
+
+1. **go to your directory where bat_temp_test-main is located**
+    - use the commands from 2.2
+
+2. **run the program settings.py**
+    - type `python settings.py` and hit enter
+
+## Run the main Program
+
+1. **go to your directory where bat_temp_test-main is located**
+    - use the commands from 2.2
+
+2. **run the programm thermal_dynamics_HVB.py**
+    - type `python thermal_dynamics_HVB.py` and hit enter
+
+
+
+
 
 ## Preparing Your Data
 
