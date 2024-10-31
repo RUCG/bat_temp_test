@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter import ttk
 import pandas as pd
+import re
 import json
 
 def load_file_ids(lookup_table_path):
@@ -11,8 +12,9 @@ def load_file_ids(lookup_table_path):
     else:
         lookup_table = pd.read_csv(lookup_table_path)
 
-    # Get unique file IDs and convert to a clean list of strings
+    # Get unique file IDs, clean the strings, and apply natural sorting
     file_ids = [str(file_id).strip("[]'\"") for file_id in lookup_table['File.ID'].unique()]
+    file_ids.sort(key=natural_sort_key)
     return file_ids
 
 def save_to_json(data, json_filename="config.json"):
@@ -20,6 +22,10 @@ def save_to_json(data, json_filename="config.json"):
     with open(json_filename, 'w') as f:
         json.dump(data, f, indent=4)
     print(f"Configuration saved to {json_filename}")
+
+def natural_sort_key(s):
+    # Split the string into parts with numbers as integers for natural sorting
+    return [int(text) if text.isdigit() else text for text in re.split(r'(\d+)', s)]
 
 def update_variables():
     # Get values from the tkinter entries
