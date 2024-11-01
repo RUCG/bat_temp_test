@@ -4,15 +4,15 @@ Welcome to the Battery Temperature Visualization Tool! This guide will help you 
 
 ##Table of Contents
 
-	1.	[Introduction](#introduction)
-	2.	[Installation Steps] (#installation-steps)
-	-   [1. Install Python](#1-install-python)
-    -   [2. Install Required Python Packages](#2-install-required-python-packages)
-	3.	[Preparing Your Data](#preparing-your-data)
-	•	Select Your Data from the Settings Program
-	4.	[Running the Tool](#running-the-tool)
-	•	Run the Main Program
-	5.	Troubleshooting
+	-   [Introduction](#introduction)
+	-   [Installation Steps] (#installation-steps)
+	    -   [1. Install Python](#1-install-python)
+        -   [2. Install Required Python Packages](#2-install-required-python-packages)
+	-	[Preparing Your Data](#preparing-your-data)
+	    -	Select Your Data from the Settings Program
+	-	[Running the Tool](#running-the-tool)
+	    -	Run the Main Program
+	-	Troubleshooting
 
 Introduction
 
