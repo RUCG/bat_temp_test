@@ -1,121 +1,69 @@
-# Battery Temperature Visualization Tool - User Guide
+Introduction
 
-## Table of Contents
-- [Introduction](#introduction)
-- [Prerequisites](#prerequisites)
-- [Installation Steps](#installation-steps)
-  - [1. Install Python](#1-install-python)
-  - [2. Install Required Python Packages](#2-install-required-python-packages)
-- [Preparing Your Data](#preparing-your-data)
-  - [1. Database File](#1-database-file)
-  - [2. Lookup Table File](#2-lookup-table-file)
-  - [3. Configuration File](#3-configuration-file)
-  - [4. Background Image](#4-background-image)
-- [Running the Tool](#running-the-tool)
-- [Understanding the Output](#understanding-the-output)
-- [Requirements](#requirements)
-  - [Hardware Requirements](#hardware-requirements)
-  - [Software Requirements](#software-requirements)
-- [Troubleshooting](#troubleshooting)
-- [Frequently Asked Questions](#frequently-asked-questions)
-- [Support](#support)
+Welcome to the Battery Temperature Visualization Tool! This guide will help you set up and use the tool on a Windows computer. It’s designed for mechanical engineers with basic computer skills—no programming experience required.
 
----
+Prerequisites
 
-## Introduction
+Before you begin, make sure you have the following:
 
-Welcome to the **Battery Temperature Visualization Tool**! This guide will help you set up and use the tool on a Windows computer. The tool is designed for mechanical engineers with basic computer skills, so no programming experience is required.
+	•	A Windows computer.
+	•	An internet connection to download the necessary software.
+	•	Administrative privileges to install software.
+	•	Basic familiarity with the Command Prompt (don’t worry—we’ll guide you through it!).
 
-## Prerequisites
+Installation Steps
 
-Before you begin, ensure you have the following:
-- A Windows computer.
-- An internet connection to download necessary software.
-- Administrative privileges to install software.
-- Basic understanding of using the Command Prompt (don't worry—we'll guide you!).
+1. Install Python
 
-## Installation Steps
+Python is required to run the tool.
 
-### 1. Install Python
+	1.	Download Python 3.10 or later:
+	•	Visit the official Python website.
+	•	Download the latest Python 3.10.x version.
+	2.	Run the Installer:
+	•	Locate the downloaded file (e.g., python-3.10.x.exe) and double-click to open it.
+	•	Important: Check the box that says “Add Python 3.10 to PATH”.
+	•	Click Install Now and follow the prompts.
+	3.	Verify the Installation:
+	•	Open the Command Prompt by pressing Win + R, typing cmd, and pressing Enter.
+	•	Run the following command: python --version
 
-Python is the programming language used to run the tool.
+    	•	You should see output like Python 3.10.x, confirming the installation.
 
-1. **Download Python 3.10 or later:**
-   - Go to the [official Python website](https://www.python.org/downloads/windows/).
-   - Click on **"Download Python 3.10.x"** (or the latest version available).
-   
-2. **Run the Installer:**
-   - Locate the downloaded file (e.g., `python-3.10.x.exe`) and double-click it.
-   - **Important:** On the first installation screen, check the box that says **"Add Python 3.10 to PATH"**.
-   - Click **"Install Now"** and follow the prompts.
-
-3. **Verify the Installation:**
-   - Open the **Command Prompt** by pressing `Win + R`, typing `cmd`, and pressing **Enter**.
-   - Type `python --version` and press **Enter**.
-   - You should see a response like `Python 3.10.x`.
-
-
-### 2. Install Required Python Packages
+2. Install Required Python Packages
 
 The tool uses several Python libraries that need to be installed.
 
-1. **Open the Command Prompt:**
-   - Press `Win + R`, type `cmd`, and press **Enter**.
+	1.	Open the Command Prompt:
+	•	Press Win + R, type cmd, and press Enter.
+	2.	Navigate to the Project Directory:
+	•	Use these commands to navigate:
+	•	dir: Lists all directories in the current folder.
+	•	cd folder_name: Enters the specified folder.
+	•	Example: cd downloads\bat_temp_test-main
+	•	cd ..: Goes up one directory level.
+	3.	Install Packages Using requirements.txt:
+	•	Run the following command in the Command Prompt: pip install -r requirements.txt
 
-2. **head to the unziped folder:**
-    - type `dir` to see all directorys
-    - type `cd` to move into a folder
-        - eg: `cd downloads\bat_temp_test-main` to enter the project folder in downloads
-    - type `cd..` to go back one level
+    	•	Wait for the installation to complete.
 
-3. **Install Packages Using pip:**
-    - type `pip install -r requirements.txt`
+Configuring Your Data
 
-   - Wait for the installation to complete.
+To use your specific data with the tool, you’ll need to configure the paths.
 
+	1.	Run the Settings Program:
+	•	In Command Prompt, navigate to the project directory (bat_temp_test-main).
+	•	Run: python settings.py
 
-## Select Your Data from the settings programm
+    •	Follow the on-screen instructions to select your data files and configure settings. This will create a config.json file in the project directory.
 
-1. **go to your directory where bat_temp_test-main is located**
-    - use the commands from 2.2
+Running the Main Program
 
-2. **run the program settings.py**
-    - type `python settings.py` and hit enter
+Once you’ve configured your data, you’re ready to run the main program.
 
-## Run the main Program
-
-1. **go to your directory where bat_temp_test-main is located**
-    - use the commands from 2.2
-
-2. **run the programm thermal_dynamics_HVB.py**
-    - type `python thermal_dynamics_HVB.py` and hit enter
-
-
-
+	1.	Navigate to the Project Directory.
+	2.	Run the Main Program:
+	•	In Command Prompt, type the following command: python thermal_dynamics_HVB.py
+    •	Press Enter to start the visualization tool.
 
 
-## Preparing Your Data
-
-Before running the tool, you need to have your data files ready.
-
-### 1. Database File
-- **File Needed:** A SQLite database file (e.g., `mf4_data.db`) containing the battery temperature data.
-- **Action:** Place the database file in a folder where you can easily locate it (e.g., `C:\BatteryData\`).
-
-### 2. Lookup Table File
-- **File Needed:** A lookup table file in Parquet or CSV format (e.g., `db_lookup_table.parquet` or `db_lookup_table.csv`).
-- **Action:** Place the lookup table file in the same folder as the database file.
-
-### 3. Configuration File
-- **File Needed:** A JSON configuration file named `config.json`.
-- **Action:** Create a file named `config.json` in the same folder as the script. This file tells the tool where to find your data files and other settings.
-
-**Sample `config.json` Content:**
-```json
-{
-  "db_path": "C:\\BatteryData\\mf4_data.db",
-  "lookup_table_path": "C:\\BatteryData\\db_lookup_table.parquet",
-  "file_id": "YourFileID.MF4",
-  "vmin": 15.0,
-  "vmax": 40.0
-}
